@@ -25,6 +25,7 @@ COOKIE = "mb_session"
 SESSION_DAYS = 90
 DATE_RE = re.compile(r"^\d{8}$")
 REC_RE = re.compile(r"^R\d{1,2}$")
+KEY_RE = re.compile(r"^[A-Za-z0-9]{1,20}$")
 MAX_UPLOAD_BYTES = 600 * 1024 * 1024
 
 @asynccontextmanager
@@ -156,12 +157,37 @@ def lesson_audio(date: str, rid: str):
     return RedirectResponse(storage.sas_url(config.DATA_CONTAINER, name), status_code=307)
 
 
-@app.get("/api/lessons/{date}/images/{n}", dependencies=[Depends(require_auth)])
-def lesson_image(date: str, n: int):
-    name = f"{_check_date(date)}/images/img{n}.jpg"
+@app.get("/api/lessons/{date}/images/{key}", dependencies=[Depends(require_auth)])
+def lesson_image(date: str, key: str):
+    if not KEY_RE.match(key):
+        raise HTTPException(400, "bad image id")
+    name = f"{_check_date(date)}/images/{key}.jpg"
     if not storage.exists(config.DATA_CONTAINER, name):
         raise HTTPException(404, "image not found")
     return RedirectResponse(storage.sas_url(config.DATA_CONTAINER, name), status_code=307)
+
+
+class Checks(BaseModel):
+    done: list[int]
+
+
+def _checks_path(date: str, kid: str) -> str:
+    if kid not in config.KIDS:
+        raise HTTPException(404, "unknown kid")
+    return f"{_check_date(date)}/checks/{kid}.json"
+
+
+@app.get("/api/lessons/{date}/kids/{kid}/checks", dependencies=[Depends(require_auth)])
+def get_checks(date: str, kid: str):
+    return storage.get_json(config.DATA_CONTAINER, _checks_path(date, kid)) or {"done": []}
+
+
+@app.put("/api/lessons/{date}/kids/{kid}/checks", dependencies=[Depends(require_auth)])
+def put_checks(date: str, kid: str, body: Checks):
+    done = sorted({i for i in body.done if 0 <= i < 100})
+    data = {"done": done, "updated": datetime.now(timezone.utc).isoformat()}
+    storage.put_json(config.DATA_CONTAINER, _checks_path(date, kid), data)
+    return data
 
 
 @app.get("/api/lessons/{date}/kids/{kid}/zh", dependencies=[Depends(require_auth)])

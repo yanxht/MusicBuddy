@@ -1,5 +1,6 @@
 """End-to-end processing of one lesson folder (raw blobs -> lesson.json)."""
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -60,14 +61,19 @@ def _download_raw(date: str, work: Path) -> list[Path]:
     return sorted(paths, key=lambda p: _natural(p.name))
 
 
+def _photo_key(name: str) -> str:
+    # Stable per file name, so adding photos later never renumbers existing ones.
+    return hashlib.sha1(name.encode()).hexdigest()[:12]
+
+
 def _process_images(date: str, images: list[Path], work: Path) -> list[dict]:
     out = []
-    for i, p in enumerate(images, 1):
+    for p in images:
         cached = storage.get_json(config.DATA_CONTAINER, f"{date}/images/{p.name}.json")
         if cached and cached.get("size") == p.stat().st_size:
             out.append(cached)
             continue
-        jpg = work / "images" / f"img{i}.jpg"
+        jpg = work / "images" / f"{_photo_key(p.name)}.jpg"
         jpg.parent.mkdir(parents=True, exist_ok=True)
         part = llm.image_part(p, max_px=1600)
         jpg.write_bytes(base64.b64decode(part["image_url"]["url"].split(",", 1)[1]))
@@ -75,14 +81,17 @@ def _process_images(date: str, images: list[Path], work: Path) -> list[dict]:
             info = llm.chat_json(prompts.IMAGE_SYSTEM,
                                  [{"type": "text", "text": prompts.IMAGE_USER}, part],
                                  model=config.VISION_MODEL, max_tokens=16000)
+            ok = True
         except Exception as e:  # noqa: BLE001 - an unreadable photo should not fail the lesson
             log.warning("image read failed for %s: %s", p.name, e)
             info = {"kind": "other", "kid": "unknown", "title": p.name, "text": "", "items": []}
-        blob = f"{date}/images/img{i}.jpg"
+            ok = False
+        blob = f"{date}/images/{_photo_key(p.name)}.jpg"
         storage.put_file(config.DATA_CONTAINER, blob, jpg)
         rec = {"name": p.name, "size": p.stat().st_size, "blob": blob, **info}
         rec["kid"] = str(rec.get("kid") or "unknown").lower()
-        storage.put_json(config.DATA_CONTAINER, f"{date}/images/{p.name}.json", rec)
+        if ok:  # failed reads are retried on the next run instead of being cached
+            storage.put_json(config.DATA_CONTAINER, f"{date}/images/{p.name}.json", rec)
         out.append(rec)
     return out
 
@@ -131,11 +140,87 @@ def _fmt_notes(notes: list[dict], kid: str | None = None) -> str:
     return "\n".join(rows) or "(none provided)"
 
 
-def _fmt_pages(images: list[dict], kid: str | None = None) -> str:
-    rows = [f"- {i.get('title', '')}: {i.get('music') or i.get('text', '')[:800]}"
-            for i in images if i.get("kind") == "lesson_book_page"
-            and (not kid or i.get("kid") in (kid, "both", "unknown"))]
+def _fmt_pages(images: list[dict], kid: str | None = None, books_only: bool = False) -> str:
+    """Photos as '[photo N]' lines; N is the 1-based position in `images` and is how prompts cite them."""
+    rows = []
+    for n, i in enumerate(images, 1):
+        if books_only and i.get("kind") != "lesson_book_page":
+            continue
+        if kid and i.get("kid") not in (kid, "both", "unknown"):
+            continue
+        span = f", matched to #{i['span'][0]}-#{i['span'][1]}" if i.get("span") else ""
+        body = (i.get("music") or i.get("text") or "")[:800]
+        if i.get("handwriting"):
+            body += "\n  Handwritten: " + "; ".join(map(str, i["handwriting"]))[:800]
+        if i.get("dates"):
+            body += "\n  Dates written on page: " + ", ".join(map(str, i["dates"]))
+        rows.append(f"- [photo {n}] {i.get('kind')} (kid: {i.get('kid', 'unknown')}{span}): "
+                    f"{i.get('title', '')}\n  {body}")
     return "\n".join(rows) or "(none)"
+
+
+def _notes_from(image_info: list[dict], texts: list[Path]) -> list[dict]:
+    notes = [{"source": i["name"], "kid": i.get("kid", "unknown"),
+              "text": i.get("text", ""), "items": i.get("items", [])}
+             for i in image_info if i.get("kind") == "homework_notes"]
+    for t in texts:
+        body = t.read_text(errors="ignore")
+        notes.append({"source": t.name, "kid": _kid_in_text(body), "text": body, "items": []})
+    return notes
+
+
+def _as_int(x) -> int | None:
+    try:
+        return int(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_photo_attribution(images: list[dict], attr: dict, last_id: int) -> None:
+    """Use the whole-lesson attribution to set each photo's kid and the transcript span it belongs to."""
+    def kid_at(pid: int):
+        return next((s["kid"] for s in attr["segments"] if s["from_id"] <= pid <= s["to_id"]), None)
+
+    for p in attr.get("photos") or []:
+        n = _as_int(p.get("photo"))
+        if not n or not 1 <= n <= len(images):
+            continue
+        img = images[n - 1]
+        a, b = _as_int(p.get("from_id")), _as_int(p.get("to_id"))
+        said = str(p.get("kid") or "").lower()
+        if a and b and 1 <= min(a, b) and max(a, b) <= last_id:
+            a, b = sorted((a, b))
+            img["span"] = [a, b]
+            img["kid"] = kid_at(a) if kid_at(a) in KID_IDS else img.get("kid", "unknown")
+        elif said in (*KID_IDS, "both"):
+            img["kid"] = said
+        img["why"] = p.get("why", "")
+        img["check"] = p.get("check", "")
+        img["check_note"] = p.get("check_note", "")
+
+
+def _attach_section_photos(s: dict, images: list[dict], kid: str) -> None:
+    """Turn section photo numbers into image keys; place any unreferenced matched page by span overlap."""
+    keys = {n: Path(i["blob"]).stem for n, i in enumerate(images, 1) if i.get("blob")}
+    used = set()
+    sections = s.get("sections", [])
+    for sec in sections:
+        nums = [n for n in (_as_int(x) for x in sec.get("photos") or []) if n in keys]
+        sec["photos"] = [keys[n] for n in nums]
+        used.update(nums)
+    for n, img in enumerate(images, 1):
+        if n in used or n not in keys or img.get("kind") != "lesson_book_page" \
+                or img.get("kid") not in (kid, "both") or not img.get("span"):
+            continue
+        a, b = img["span"]
+
+        def overlap(sec):
+            lo, hi = _as_int(sec.get("from_id")) or 0, _as_int(sec.get("to_id")) or 0
+            return min(b, hi) - max(a, lo)
+
+        best = max(sections, key=overlap, default=None)
+        if best is not None and overlap(best) >= 0:
+            best["photos"].append(keys[n])
 
 
 def _fmt_kids() -> str:
@@ -281,10 +366,31 @@ def summarize_kid(date: str, kid: str, meta: dict, items: list[dict], ranges: li
         teacher=meta["teacher"] or config.TEACHER_NAME, date=date,
         profile=json.dumps(profile, ensure_ascii=False) if profile else "(none)",
         previous=_previous_assignments(date, kid), notes=_fmt_notes(notes, kid),
-        pages=_fmt_pages(images, kid),
+        pages=_fmt_pages(images, kid, books_only=True),
         speakers=", ".join(sorted(set(speakers.values()))) or "unknown", transcript=transcript)
     s = llm.chat_json(prompts.SUMMARY_SYSTEM, user, max_tokens=64000)
+    _attach_section_photos(s, images, kid)
+    _resolve_photo_notes(s, images, items, durations, ranges)
     return _resolve_summary(s, items, durations, ranges)
+
+
+def _resolve_photo_notes(s: dict, images: list[dict], items, durations, ranges) -> None:
+    """Photo numbers -> image keys; the page clip spans its whole stretch, marking clips stay short."""
+    out = []
+    for p in s.get("photos") or []:
+        n = _as_int(p.get("photo"))
+        if not n or not 1 <= n <= len(images) or not images[n - 1].get("blob"):
+            continue
+        out.append({
+            "key": Path(images[n - 1]["blob"]).stem,
+            "status": p.get("status", ""),
+            "summary": p.get("summary", ""),
+            "clip": _resolve_clip(p.get("clip"), items, durations, ranges, None),
+            "markings": [{"mark": m.get("mark", ""), "meaning": m.get("meaning", ""),
+                          "clip": _resolve_clip(m.get("clip"), items, durations, ranges)}
+                         for m in p.get("markings") or [] if m.get("mark")],
+        })
+    s["photos"] = out
 
 
 def update_profile(date: str, kid: str, summary: dict) -> None:
@@ -335,12 +441,7 @@ def process(date: str, keep_work: bool = False) -> dict:
 
         set_status(date, "processing", "reading photos and notes")
         image_info = _process_images(date, images, work)
-        notes = [{"source": i["name"], "kid": i.get("kid", "unknown"),
-                  "text": i.get("text", ""), "items": i.get("items", [])}
-                 for i in image_info if i.get("kind") == "homework_notes"]
-        for t in texts:
-            body = t.read_text(errors="ignore")
-            notes.append({"source": t.name, "kid": _kid_in_text(body), "text": body, "items": []})
+        notes = _notes_from(image_info, texts)
 
         recordings, transcripts, silences = _process_audio(date, audios, work)
         items = timeline.build(recordings, transcripts, silences)
@@ -350,6 +451,8 @@ def process(date: str, keep_work: bool = False) -> dict:
 
         set_status(date, "processing", "figuring out whose lesson is when")
         attr = attribute(date, recordings, items, notes, image_info)
+        _apply_photo_attribution(image_info, attr, timeline.phrases(items)[-1]["id"])
+        notes = _notes_from(image_info, texts)
         speakers = _speaker_names(attr)
         durations = {r["id"]: r["duration"] for r in recordings}
 

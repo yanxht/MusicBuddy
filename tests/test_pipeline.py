@@ -94,3 +94,57 @@ def test_ingest_helpers():
 def test_meta_from_names():
     assert run._meta_from_names(["20261107-violin-coleman-p1.m4a"]) == ("violin", "Coleman")
     assert run._meta_from_names(["x.m4a"]) == ("violin", "")
+
+
+def photos():
+    return [
+        {"kind": "homework_notes", "kid": "keyu", "blob": "d/images/img1.jpg", "title": "notes"},
+        {"kind": "lesson_book_page", "kid": "unknown", "blob": "d/images/abc123.jpg", "title": "No. 10",
+         "music": "Scherzando", "handwriting": ["Count! one trip-let"], "dates": ["11-7"]},
+        {"kind": "lesson_book_page", "kid": "unknown", "blob": "d/images/def456.jpg", "title": "Perpetual Motion"},
+    ]
+
+
+SEGS = {"segments": [{"kid": "ruyu", "from_id": 1, "to_id": 3}, {"kid": "keyu", "from_id": 4, "to_id": 5}]}
+
+
+def test_photo_attribution_uses_span_owner_and_keeps_check():
+    imgs = photos()
+    attr = {**SEGS, "photos": [
+        {"photo": 2, "kid": "ruyu", "from_id": "5", "to_id": 4, "check": "agrees", "check_note": "dated 11-7"},
+        {"photo": 3, "kid": "Keyu", "from_id": None, "to_id": None, "check": "not_discussed"},
+        {"photo": 9, "kid": "keyu"},
+    ]}
+    run._apply_photo_attribution(imgs, attr, 5)
+    assert imgs[1]["kid"] == "keyu" and imgs[1]["span"] == [4, 5]  # span owner beats the stated kid
+    assert imgs[1]["check"] == "agrees"
+    assert imgs[2]["kid"] == "keyu" and "span" not in imgs[2]
+
+
+def test_fmt_pages_numbers_and_handwriting():
+    txt = run._fmt_pages(photos(), books_only=True)
+    assert "[photo 2]" in txt and "[photo 1]" not in txt
+    assert "Count! one trip-let" in txt and "11-7" in txt
+
+
+def test_attach_section_photos_maps_numbers_and_falls_back_to_overlap():
+    imgs = photos()
+    imgs[1].update(kid="keyu", span=[4, 5])
+    imgs[2].update(kid="keyu", span=[1, 2])
+    s = {"sections": [{"from_id": 1, "to_id": 3, "photos": ["3"]}, {"from_id": 4, "to_id": 5, "photos": []}]}
+    run._attach_section_photos(s, imgs, "keyu")
+    assert s["sections"][0]["photos"] == ["def456"]
+    assert s["sections"][1]["photos"] == ["abc123"]
+
+
+def test_resolve_photo_notes():
+    it = items()
+    durs = {"R1": 100.0, "R2": 60.0}
+    s = {"photos": [{"photo": 2, "status": "worked_on", "clip": [1, 3],
+                     "markings": [{"mark": "Count!", "meaning": "count aloud", "clip": [1, 1]}, {"mark": ""}]},
+                    {"photo": 7}]}
+    run._resolve_photo_notes(s, photos(), it, durs, [(1, 5)])
+    assert len(s["photos"]) == 1
+    p = s["photos"][0]
+    assert p["key"] == "abc123" and p["clip"]["to"] == 3  # page clip is not capped
+    assert [m["mark"] for m in p["markings"]] == ["Count!"]

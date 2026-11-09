@@ -2,6 +2,7 @@
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Iterator
 
 from .. import config, llm, prompts, storage
@@ -27,6 +28,10 @@ def _slim_summary(s: dict) -> dict:
                         "ids": [sec.get("from_id"), sec.get("to_id")], "summary": sec.get("summary"),
                         "points": [{**p, "clip": _ids(p.get("clip"))} for p in sec.get("points", [])]}
                        for sec in s.get("sections", [])]
+    out["photos"] = [{"photo": p.get("key"), "status": p.get("status"), "summary": p.get("summary"),
+                      "clip": _ids(p.get("clip")),
+                      "markings": [{**m, "clip": _ids(m.get("clip"))} for m in p.get("markings", [])]}
+                     for p in s.get("photos", [])]
     return out
 
 
@@ -52,6 +57,11 @@ def _lesson_block(date: str, full: bool) -> str:
     if full:
         for n in doc.get("notes", []):
             parts.append(f"### Homework notes sent before the lesson ({n['source']}):\n{n['text']}")
+        for im in doc.get("images", []):
+            if im.get("kind") == "lesson_book_page":
+                parts.append(f"### Photo {Path(im.get('blob', '')).stem}: {im.get('title')} "
+                             f"(for {im.get('kid')}): {im.get('music', '')}\n"
+                             f"Handwritten: {'; '.join(map(str, im.get('handwriting') or []))}")
         items = storage.get_json(config.DATA_CONTAINER, f"{date}/timeline.json") or []
         speakers = (doc.get("attribution") or {}).get("speaker_names", {})
         who = {}

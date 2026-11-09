@@ -25,6 +25,9 @@ def test_login_flow_and_validation(monkeypatch):
     assert c.get("/api/lessons/2026").status_code == 400
     assert c.get("/api/lessons/20261107/audio/evil").status_code == 400
     assert c.get("/api/profiles/someone").status_code == 404
+    assert c.get("/api/lessons/20261107/images/a.b").status_code in (400, 404)
+    assert c.get("/api/lessons/20261107/images/" + "x" * 30).status_code == 400
+    assert c.get("/api/lessons/20261107/kids/someone/checks").status_code == 404
     r = c.post("/api/chat", json={"messages": [{"role": "assistant", "content": "x"}]})
     assert r.status_code == 400
 

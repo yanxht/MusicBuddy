@@ -31,7 +31,8 @@ the teacher playing.
 Homework / notes the parent sent before the lesson (the teacher uses them to check homework):
 {notes}
 
-Lesson-book pages photographed this lesson:
+Photos attached to this lesson (lesson-book pages, homework screenshots; the kid shown is only
+a guess from the image itself):
 {pages}
 
 Transcript (#id recording time speaker: text):
@@ -45,12 +46,24 @@ Return JSON:
       "evidence": ["short quotes or facts with #ids that justify this"]}}
   ],
   "handoffs": [{{"at_id": 251, "description": "what marks the switch"}}],
+  "photos": [
+    {{"photo": 1, "kid": "ruyu|keyu|both|unknown", "from_id": 300, "to_id": 420,
+      "why": "which piece/exercise on the page matches what is taught in that span",
+      "check": "agrees|conflicts|not_discussed",
+      "check_note": "one sentence: does this photo support the kid split from the audio? e.g. a handwritten date matching this lesson, the teacher naming the exercise number"}}
+  ],
   "reasoning": "2-4 sentences explaining the overall call, including how timing compares to the usual split"
 }}
 Rules: segments are ordered, non-overlapping, and together cover #1..#{last_id}.
 Keep greetings, parent-teacher talk about a child, and packing up inside that child's segment.
 Use "none" only for long stretches that belong to neither lesson (e.g. a break, phone searching
-between lessons). Prefer few large segments; a child's lesson is normally one contiguous block."""
+between lessons). Prefer few large segments; a child's lesson is normally one contiguous block.
+Give one "photos" entry per photo. For a lesson-book page, match the piece, exercise, page number,
+key, tempo or markings on the page to the part of the transcript where it is being worked on and
+return that span (from_id/to_id); the kid is whoever is being taught in that span. For homework
+notes, give the kid they belong to and null ids. Use null ids if the page is never discussed.
+Photos are an independent cross-check: if a page clearly belongs to the other child's span,
+say "conflicts" and reconsider the segments before answering."""
 
 
 SUMMARY_SYSTEM = """You are MusicBuddy, a meticulous assistant for a family whose kids take
@@ -73,7 +86,7 @@ Previous lesson's assignments for this child (may be empty):
 Homework notes the parent sent before this lesson (teacher checks these):
 {notes}
 
-Lesson-book pages photographed this lesson:
+Lesson-book pages photographed this lesson (with the transcript span they were matched to):
 {pages}
 
 Speakers: {speakers}
@@ -98,6 +111,7 @@ within this transcript. For teacher_focus give 2-3 short clips of the clearest m
     {{"title": "e.g. Vibrato warm-up / Perpetual Motion m. 9-16", "kind": "warmup|technique|scale|etude|piece|theory|note_reading|homework_check|talk",
       "material": "book / piece / exercise name, page or measures if known, else empty",
       "from_id": 1, "to_id": 60,
+      "photos": [1],
       "summary": "2-4 sentences of what happened",
       "points": [
         {{"type": "instruction|correction|tip|demo|praise|assignment|concept",
@@ -116,11 +130,26 @@ within this transcript. For teacher_focus give 2-3 short clips of the clearest m
   "practice_plan": [{{"step": "ordered daily routine step", "minutes": 5}}],
   "kid_recap": "a short, upbeat note written directly to {kid_name} at a {age}-year-old's level, with 3 things to remember",
   "parent_notes": ["things for the parent: logistics, questions raised, what to supervise"],
-  "glossary": [{{"term": "musical term used in the lesson", "meaning": "kid-friendly definition"}}]
+  "glossary": [{{"term": "musical term used in the lesson", "meaning": "kid-friendly definition"}}],
+  "photos": [
+    {{"photo": 1, "status": "worked_on|mentioned|not_covered",
+      "summary": "1-2 sentences: what was done with this page today (or why it matters if not covered)",
+      "clip": [300, 420],
+      "markings": [
+        {{"mark": "a handwritten marking from the photo, verbatim", "meaning": "what the teacher meant, in plain words",
+          "clip": [310, 316]}}
+      ]
+    }}
+  ]
 }}
 Sections must follow the lesson chronologically and together cover the whole lesson.
 Aim for 6-14 sections, 2-8 points each, 3-6 teacher_focus themes, and include every homework item
-from the notes in homework_check."""
+from the notes in homework_check. In each section, "photos" lists the photo numbers of book pages
+used in that section (empty list if none); use a photo's printed title, page and measure numbers to
+name the material precisely. Give one "photos" entry per book-page photo listed above: "clip" spans
+the whole stretch where that page is worked on (null if not covered), and "markings" explains the
+handwritten markings, each linked to the moment the teacher talks about it when she does (clip may
+be null for older markings). Do not split a page into pieces; treat it as one artifact."""
 
 
 PROFILE_SYSTEM = """You maintain a concise learning profile for a child music student, updated
@@ -155,7 +184,9 @@ JSON: {
  "title": "short title, e.g. 'Keyu homework list' or 'Suzuki Book 4 p.23 - Perpetual Motion'",
  "text": "all readable text, transcribed faithfully with line breaks",
  "items": ["for homework notes: one entry per homework item"],
- "music": "for book pages: piece/exercise names, page numbers, markings, tempo, key, fingerings visible"
+ "music": "for book pages: book name, page number, piece/exercise titles and numbers, composer, key and time signature, tempo marks, measure numbers",
+ "handwriting": ["for book pages: every handwritten marking, verbatim, with where it is, e.g. 'Count! one trip-let (top, above m.1)', '♩=44', dates like '11-7', circled spots, brackets, fingerings, bowing marks"],
+ "dates": ["handwritten lesson dates found on the page, as written, e.g. '10-24', '11-7'"]
 }"""
 
 

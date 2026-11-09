@@ -2,6 +2,7 @@
 import hashlib
 import logging
 import re
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,17 @@ IMAGE_EXT = {".png", ".jpg", ".jpeg", ".heic", ".heif", ".webp"}
 TEXT_EXT = {".txt", ".md"}
 DATE_DIR = re.compile(r"^(\d{4})-?(\d{2})-?(\d{2})$")
 STABLE_AFTER_S = 180  # wait for cloud-drive sync to settle before uploading
+
+
+def allow_cloud_file_download() -> None:
+    """Background (launchd) processes get EDEADLK reading cloud-only Drive files unless they opt in."""
+    if sys.platform != "darwin":
+        return
+    import ctypes
+    libc = ctypes.CDLL("libc.dylib", use_errno=True)
+    # setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_PROCESS, ..._ON)
+    if libc.setiopolicy_np(3, 0, 2) != 0:
+        log.warning("could not enable dataless file materialization (errno %s)", ctypes.get_errno())
 
 
 def kind_of(name: str) -> str | None:
@@ -81,6 +93,7 @@ def scan(input_dir: str | None = None, force: bool = False) -> list[str]:
     root = Path(input_dir or config.INPUT_DIR or "")
     if not root.is_dir():
         raise SystemExit(f"Input folder not found: {root}")
+    allow_cloud_file_download()
     queued = []
     for folder in sorted(p for p in root.iterdir() if p.is_dir()):
         try:

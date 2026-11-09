@@ -249,11 +249,18 @@ const PTYPE_ZH = { instruction: "做法", correction: "纠正", tip: "小贴士"
 const LABELS = {
   en: { focus: "What the teacher focused on", came: (n) => `Came up ~${n}×`, hw: "Homework check", practice: "Practice this week",
     replay: "Lesson replay", parts: "parts", forKid: (n) => `For ${n}`, parents: "Notes for parents", words: "Words to know",
-    photos: "Photos", status: { checked: "Checked", partly: "Partly", not_covered: "Not covered" }, min: "min" },
+    photos: "Photos", status: { checked: "Checked", partly: "Partly", not_covered: "Not covered" }, min: "min",
+    music: "Music from this lesson", pstatus: { worked_on: "Worked on today", mentioned: "Mentioned", not_covered: "Not covered today" },
+    playPart: "Play this part", markings: "Teacher's markings", viewNote: "View note", done: (a, b) => `${a} of ${b} done` },
   zh: { focus: "老师重点强调", came: (n) => `约提到 ${n} 次`, hw: "作业检查", practice: "本周练习",
     replay: "课堂回放", parts: "个部分", forKid: (n) => `写给 ${n}`, parents: "家长须知", words: "术语小词典",
-    photos: "照片", status: { checked: "已检查", partly: "部分", not_covered: "未涉及" }, min: "分钟" },
+    photos: "照片", status: { checked: "已检查", partly: "部分", not_covered: "未涉及" }, min: "分钟",
+    music: "本节课的乐谱", pstatus: { worked_on: "今天练习了", mentioned: "提到过", not_covered: "今天未涉及" },
+    playPart: "播放这一段", markings: "老师的标记", viewNote: "查看笔记", done: (a, b) => `已完成 ${a}/${b}` },
 };
+const imgKey = (im) => (im?.blob || "").match(/images\/([A-Za-z0-9]+)\.jpg$/)?.[1];
+const imgUrl = (date, key) => `/api/lessons/${date}/images/${key}`;
+const forKid = (im, kid) => im.kid === kid || im.kid === "both" || im.kid === "unknown";
 
 async function viewLesson(date, kid, tab) {
   view.innerHTML = `<div class="empty"><div class="spinner" style="margin:auto"></div></div>`;
@@ -313,10 +320,10 @@ async function viewLesson(date, kid, tab) {
       ${clipBtn(date, h.clip, "Homework: " + h.item)}
     </div>`).join("");
 
-  const asg = (S.assignments || []).map((a) => `
+  const asg = (S.assignments || []).map((a, i) => `
     <div class="row">
-      <span class="prio ${esc(a.priority)}" title="${esc(a.priority)} priority"></span>
-      <div class="body"><div class="t">${esc(a.task)}</div>${a.details ? `<div class="d">${esc(a.details)}</div>` : ""}</div>
+      <button class="check" data-check="${i}" aria-label="Mark done"></button>
+      <div class="body"><div class="t">${a.priority === "high" ? `<span class="prio high" title="high priority"></span>` : ""}${esc(a.task)}</div>${a.details ? `<div class="d">${esc(a.details)}</div>` : ""}</div>
       ${clipBtn(date, a.clip, "Practice: " + a.task)}
     </div>`).join("");
   const plan = (S.practice_plan || []).map((p, i) => `<div class="step"><b>${i + 1}</b>${esc(p.step)}${p.minutes ? ` <span class="muted">· ${esc(p.minutes)} ${L.min}</span>` : ""}</div>`).join("");
@@ -330,20 +337,52 @@ async function viewLesson(date, kid, tab) {
           ${clipBtn(date, s.clip, s.title, s.clip ? `${clipTime(date, s.clip)} · ${mins(Math.max(1, Math.round((s.clip.end - s.clip.start) / 60)))}` : "")}
         </div>
         ${s.summary ? `<p class="sum">${esc(s.summary)}</p>` : ""}
+        ${(s.photos || []).length ? `<div class="thumbs">${s.photos.map((k) => `<button class="thumb" data-img="${esc(k)}"><img src="${imgUrl(date, k)}" alt="" loading="lazy"></button>`).join("")}</div>` : ""}
         <ul class="points">${(s.points || []).map((p) => `
           <li><span class="ptype ${esc(p.type)}">${esc(PT[p.type] || p.type)}</span><span class="ptext">${esc(p.text)}</span>${clipBtn(date, p.clip, p.text)}</li>`).join("")}
         </ul>
       </div>
     </div>`).join("");
 
-  const photos = (doc.images || []).map((im) => {
-    const n = (im.blob || "").match(/img(\d+)\.jpg$/)?.[1];
-    return n ? `
-    <a href="/api/lessons/${date}/images/${n}" target="_blank" rel="noopener">
-      <img src="/api/lessons/${date}/images/${n}" alt="${esc(im.title)}" loading="lazy">
-      <div class="cap">${esc(im.title || im.name)}</div>
-    </a>` : "";
+  const images = doc.images || [];
+  const byKey = Object.fromEntries(images.filter(imgKey).map((im) => [imgKey(im), im]));
+  const notesPhotos = images.filter((im) => im.kind === "homework_notes" && forKid(im, kid) && imgKey(im));
+  const pagePhotos = (S.photos || []).filter((p) => byKey[p.key]);
+  const shown = new Set([...pagePhotos.map((p) => p.key), ...notesPhotos.map(imgKey)]);
+  const music = pagePhotos.map((p) => {
+    const im = byKey[p.key];
+    const sec = (S.sections || []).find((x) => (x.photos || []).includes(p.key));
+    return `
+    <div class="card score">
+      <button class="score-img" data-img="${esc(p.key)}"><img src="${imgUrl(date, p.key)}" alt="${esc(im.title)}" loading="lazy"></button>
+      <div class="score-body">
+        <span class="pstatus ${esc(p.status)}">${esc(L.pstatus[p.status] || p.status)}</span>
+        <h3>${esc(im.title || im.name)}</h3>
+        ${sec ? `<div class="material">↳ ${esc(sec.title)}</div>` : ""}
+        ${p.summary ? `<p class="sum">${esc(p.summary)}</p>` : ""}
+        ${p.clip ? clipBtn(date, p.clip, im.title, `${L.playPart} · ${clipTime(date, p.clip)} · ${mins(Math.max(1, Math.round((p.clip.end - p.clip.start) / 60)))}`) : ""}
+        ${(p.markings || []).length ? `<div class="marks-h">${L.markings}</div><ul class="marks">${p.markings.map((m) => `
+          <li><span class="mark">${esc(m.mark)}</span><span class="ptext">${esc(m.meaning)}</span>${clipBtn(date, m.clip, m.mark)}</li>`).join("")}</ul>` : ""}
+      </div>
+    </div>`;
   }).join("");
+  const hwNote = notesPhotos.map((im) => `<button class="chip-btn" data-img="${esc(imgKey(im))}">${L.viewNote}</button>`).join("");
+
+  const photos = images.filter((im) => imgKey(im) && !shown.has(imgKey(im)) && forKid(im, kid)
+      && im.kind !== "homework_notes").map((im) => `
+    <button class="photo" data-img="${esc(imgKey(im))}">
+      <img src="${imgUrl(date, imgKey(im))}" alt="${esc(im.title)}" loading="lazy">
+      <div class="cap">${esc(im.title || im.name)}</div>
+    </button>`).join("");
+
+  const CHECK = { agrees: ["ok", "Agrees"], conflicts: ["bad", "Conflicts"], not_discussed: ["meh", "Not discussed"] };
+  const crossCheck = images.filter((im) => imgKey(im) && im.check).map((im) => `
+    <div class="xrow">
+      <button class="thumb" data-img="${esc(imgKey(im))}"><img src="${imgUrl(date, imgKey(im))}" alt="" loading="lazy"></button>
+      <div class="body"><b>${esc(im.title || im.name)}</b> → ${esc(KIDS[im.kid]?.name || im.kid)}${im.span ? ` · #${im.span[0]}–#${im.span[1]}` : ""}
+        <span class="xcheck ${(CHECK[im.check] || ["meh"])[0]}">${esc((CHECK[im.check] || ["", im.check])[1])}</span>
+        <div class="muted small">${esc(im.check_note || im.why || "")}</div></div>
+    </div>`).join("");
 
   const total = doc.recordings.reduce((a, r) => a + r.duration, 0);
   const segs = (doc.attribution?.segments || []);
@@ -359,8 +398,9 @@ async function viewLesson(date, kid, tab) {
       ${S.mood ? `<span class="mood">${esc(S.mood)}</span>` : ""}
     </div>
     ${focus ? `<h2 class="section">${L.focus}</h2><div class="focus-grid">${focus}</div>` : ""}
-    ${hw ? `<h2 class="section">${L.hw} <span class="count">${(S.homework_check || []).length}</span></h2><div class="card list-card">${hw}</div>` : ""}
-    ${asg || plan ? `<h2 class="section">${L.practice}</h2>${asg ? `<div class="card list-card">${asg}</div>` : ""}${plan ? `<div class="plan">${plan}</div>` : ""}` : ""}
+    ${hw ? `<h2 class="section">${L.hw} <span class="count">${(S.homework_check || []).length}</span><span class="spacer"></span>${hwNote}</h2><div class="card list-card">${hw}</div>` : ""}
+    ${asg || plan ? `<h2 class="section">${L.practice} <span class="count" id="done-count"></span></h2>${asg ? `<div class="card list-card" id="asg">${asg}</div>` : ""}${plan ? `<div class="plan">${plan}</div>` : ""}` : ""}
+    ${music ? `<h2 class="section">${L.music} <span class="count">${pagePhotos.length}</span></h2><div class="stack">${music}</div>` : ""}
     ${sections ? `<h2 class="section">${L.replay} <span class="count">${(S.sections || []).length} ${L.parts}</span></h2><div class="timeline">${sections}</div>` : ""}
     ${S.kid_recap ? `<h2 class="section">${esc(L.forKid(name))}</h2><div class="recap">${esc(S.kid_recap)}</div>` : ""}
     ${(S.parent_notes || []).length ? `<h2 class="section">${L.parents}</h2><div class="card list-card">${S.parent_notes.map((n) => `<div class="row"><div class="body d">${esc(n)}</div></div>`).join("")}</div>` : ""}
@@ -374,6 +414,7 @@ async function viewLesson(date, kid, tab) {
         <p>${esc(doc.attribution?.reasoning || "")}</p>
         ${segs.map((s) => `<p><b>${esc(KIDS[s.kid]?.name || "Not a lesson")}</b> #${s.from_id}–#${s.to_id} · confidence ${Math.round((s.confidence || 0) * 100)}%<br>
           <span class="muted">${(s.evidence || []).slice(0, 4).map(esc).join(" · ")}</span></p>`).join("")}
+        ${crossCheck ? `<h4>Photo cross-check</h4>${crossCheck}` : ""}
         <button class="btn" id="reprocess">Re-run AI processing</button>
       </div>
     </details>`;
@@ -384,7 +425,42 @@ async function viewLesson(date, kid, tab) {
     delete cache.lesson[date];
     location.hash = "#/";
   };
+  $("#tab").onclick = (e) => {
+    const b = e.target.closest("[data-img]");
+    if (b) openPhoto(date, b.dataset.img, byKey[b.dataset.img]);
+  };
+  setupChecks(date, kid, (S.assignments || []).length, L);
 }
+
+async function setupChecks(date, kid, n, L) {
+  const box = $("#asg");
+  if (!box || !n) return;
+  const url = `/api/lessons/${date}/kids/${kid}/checks`;
+  let done = new Set();
+  const paint = () => {
+    $$(".check", box).forEach((c) => c.closest(".row").classList.toggle("done", done.has(+c.dataset.check)));
+    $("#done-count").textContent = L.done(done.size, n);
+  };
+  try { done = new Set((await api(url)).done); } catch (_) { /* show unchecked */ }
+  paint();
+  box.onclick = async (e) => {
+    const c = e.target.closest(".check");
+    if (!c) return;
+    const i = +c.dataset.check;
+    if (done.has(i)) done.delete(i); else done.add(i);
+    paint();
+    await api(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ done: [...done] }) }).catch(() => {});
+  };
+}
+
+function openPhoto(date, key, im) {
+  $("#lb-img").src = imgUrl(date, key);
+  $("#lb-cap").textContent = im ? (im.title || im.name) : "";
+  $("#lb-open").href = imgUrl(date, key);
+  $("#lightbox").hidden = false;
+}
+$("#lightbox").addEventListener("click", (e) => { if (e.target.id === "lightbox" || e.target.id === "lb-close") $("#lightbox").hidden = true; });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#lightbox").hidden = true; });
 
 /* ---------------------------------------------------------------- transcript */
 let trState = null;
