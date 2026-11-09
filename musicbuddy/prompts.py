@@ -61,7 +61,10 @@ counts "one triplet" and the page says "Count! one trip-let"), naming the piece 
 number, describing the same passage. Medium: a handwritten date equal to this lesson's date (the
 page was assigned or worked on today), the child's level and repertoire. Weak: generic numbers such
 as metronome marks (many exercises use the same tempo), key or time signature alone.
-Pages from the same book or group usually belong to the same child. Return only JSON."""
+Pages from the same book or group usually belong to the same child. Only tie a page to a span when
+the piece being played there is the piece on the page: if the transcript names a different piece
+("which piece are you playing ... the Gavotte"), the page is not that one, however similar the
+tempo or date. Return only JSON."""
 
 PHOTO_MATCH_USER = """Lesson date: {date}
 Children: {kids}
@@ -74,6 +77,9 @@ Photos:
 
 Transcript lines that contain words written on each photo (automatic search, may include noise):
 {hits}
+
+Where each photo's distinctive handwritten words are spoken (automatic):
+{owners}
 
 Transcript (#id recording time speaker: text):
 {transcript}
@@ -235,6 +241,8 @@ that continue, same key and figuration, or numbered exercises from the same book
 photo a corrected short title. Use the homework notes to recognise named pieces or books, but do
 not invent a name you can't support; add "(likely)" when inferring.
 Return {{"photos": [{{"photo": 1, "group": "short id shared by photos of the same piece",
+  "book": "short id shared by photos from the same book (same layout, typeface, numbering style)",
+  "texture": "e.g. double stops / single line / chords",
   "piece": "piece or exercise name", "title": "e.g. 'Perpetual Motion (Bohm), p.22'"}}]}}"""
 
 

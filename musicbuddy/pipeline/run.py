@@ -153,6 +153,8 @@ def _fmt_pages(images: list[dict], kid: str | None = None, books_only: bool = Fa
             continue
         span = f", matched to #{i['span'][0]}-#{i['span'][1]}" if i.get("span") else ""
         group = f", group: {i['group']}" if i.get("group") else ""
+        group += f", book: {i['book']}" if i.get("book") else ""
+        group += f", texture: {i['texture']}" if i.get("texture") else ""
         body = (i.get("music") or i.get("text") or "")[:800]
         if i.get("handwriting"):
             body += "\n  Handwritten: " + "; ".join(map(str, i["handwriting"]))[:800]
@@ -198,6 +200,8 @@ def _consolidate_photos(images: list[dict], notes: list[dict]) -> None:
             img["title"] = p.get("title") or img.get("title")
             img["piece"] = p.get("piece", "")
             img["group"] = str(p.get("group") or f"p{n}")
+            img["book"] = str(p.get("book") or "")
+            img["texture"] = str(p.get("texture") or "")
 
 
 _NOISE = {"above", "below", "bracket", "brackets", "system", "systems", "staff", "circled", "measure",
@@ -216,27 +220,68 @@ def _norm(text: str) -> str:
     return re.sub(r"[-'’]", "", text.lower())
 
 
+def _seg_owner(segments: list[dict], pid: int) -> str:
+    return next((s["kid"] for s in segments if s["from_id"] <= pid <= s["to_id"]), "none")
+
+
+def _photo_word_lines(img: dict, lines: list) -> list[tuple[str, list[dict]]]:
+    """(word, transcript lines containing it) for a page's handwritten words, rarest first.
+
+    Words spoken on many lines are too generic to be evidence and are dropped."""
+    words = " ".join(map(str, img.get("handwriting") or [])) + " " + str(img.get("piece") or "")
+    toks = list(dict.fromkeys(t for t in re.findall(r"[a-z]{4,}", _norm(words)) if t not in _NOISE))
+    found = {t: [it for it, norm in lines if re.search(rf"\b{t}", norm)] for t in toks}
+    return sorted(((t, found[t]) for t in toks if 0 < len(found[t]) <= 12), key=lambda x: len(x[1]))
+
+
 def _photo_keyword_hits(images: list[dict], items: list[dict], segments: list[dict], per_photo: int = 10) -> str:
-    """Find transcript lines that contain words handwritten (or printed as the title) on each page.
-
-    Rarer words come first; words found on many lines are too generic to be evidence."""
+    """Transcript lines that contain words handwritten (or printed as the title) on each page."""
     lines = [(it, _norm(it["text"])) for it in timeline.phrases(items)]
-
-    def owner(pid):
-        return next((s["kid"] for s in segments if s["from_id"] <= pid <= s["to_id"]), "none")
-
     out = []
     for n, img in enumerate(images, 1):
         if img.get("kind") != "lesson_book_page":
             continue
-        words = " ".join(map(str, img.get("handwriting") or [])) + " " + str(img.get("piece") or "")
-        toks = list(dict.fromkeys(t for t in re.findall(r"[a-z]{4,}", _norm(words)) if t not in _NOISE))
-        found = {t: [it for it, norm in lines if re.search(rf"\b{t}", norm)] for t in toks}
-        ranked = sorted((t for t in toks if 0 < len(found[t]) <= 12), key=lambda t: len(found[t]))
-        hits = [f"'{t}' -> #{it['id']} ({owner(it['id'])}): {it['text'][:90]}"
-                for t in ranked for it in found[t][:3]]
-        out.append(f"- [photo {n}] words {toks[:12]}:\n    " + ("\n    ".join(hits[:per_photo]) or "no hits"))
+        ranked = _photo_word_lines(img, lines)
+        hits = [f"'{t}' -> #{it['id']} ({_seg_owner(segments, it['id'])}): {it['text'][:90]}"
+                for t, found in ranked for it in found[:3]]
+        out.append(f"- [photo {n}] words {[t for t, _ in ranked][:12]}:\n    "
+                   + ("\n    ".join(hits[:per_photo]) or "no hits"))
     return "\n".join(out) or "(no book pages)"
+
+
+def _photo_keyword_owners(images: list[dict], items: list[dict], segments: list[dict]) -> dict[int, dict]:
+    """Photos whose distinctive handwritten word (6+ letters) is spoken on 3+ lines, all in one
+    child's lesson. That is hard evidence of whose page it is and where it was taught."""
+    lines = [(it, _norm(it["text"])) for it in timeline.phrases(items)]
+    owners = {}
+    for n, img in enumerate(images, 1):
+        if img.get("kind") != "lesson_book_page":
+            continue
+        for word, found in _photo_word_lines(img, lines):
+            kids = {_seg_owner(segments, it["id"]) for it in found}
+            if len(word) >= 6 and len(found) >= 3 and len(kids) == 1 and next(iter(kids)) in KID_IDS:
+                ids = [it["id"] for it in found]
+                owners[n] = {"kid": next(iter(kids)), "word": word, "ids": ids}
+                break
+    return owners
+
+
+def _enforce_keyword_owners(photos: list[dict], owners: dict[int, dict]) -> None:
+    """If the model ties a page to the other child despite hard keyword evidence, trust the evidence."""
+    by_n = {_as_int(p.get("photo")): p for p in photos}
+    for n, o in owners.items():
+        p = by_n.get(n)
+        if p is None:
+            photos.append(p := {"photo": n})
+        if p.get("kid") == o["kid"]:
+            continue
+        name = config.KIDS[o["kid"]]["name"]
+        log.info("photo %s: keyword evidence '%s' overrides kid %s -> %s", n, o["word"], p.get("kid"), o["kid"])
+        p.update(kid=o["kid"], from_id=min(o["ids"]), to_id=max(o["ids"]), check="agrees",
+                 evidence=[f"'{o['word']}' (written on the page) is said at "
+                           + ", ".join(f"#{i}" for i in o["ids"][:5]) + f" in {name}'s lesson"],
+                 check_note=f"The teacher says '{o['word']}', written on this page, {len(o['ids'])} times "
+                            f"in {name}'s lesson, so the page is {name}'s.")
 
 
 def match_photos(date: str, items: list[dict], attr: dict, images: list[dict], speakers: dict) -> list[dict]:
@@ -244,15 +289,22 @@ def match_photos(date: str, items: list[dict], attr: dict, images: list[dict], s
         return []
     segs = "\n".join(f"- {config.KIDS.get(s['kid'], {}).get('name', 'not a lesson')}: #{s['from_id']}-#{s['to_id']}"
                      for s in attr["segments"])
+    owners = _photo_keyword_owners(images, items, attr["segments"])
+    owner_txt = "\n".join(
+        f"- [photo {n}] '{o['word']}' is said {len(o['ids'])} times, only in "
+        f"{config.KIDS[o['kid']]['name']}'s lesson (#{min(o['ids'])}-#{max(o['ids'])})"
+        for n, o in owners.items()) or "(no decisive matches)"
     user = prompts.PHOTO_MATCH_USER.format(
         date=date, kids=_fmt_kids(), segments=segs, pages=_fmt_pages(images),
-        hits=_photo_keyword_hits(images, items, attr["segments"]),
+        hits=_photo_keyword_hits(images, items, attr["segments"]), owners=owner_txt,
         transcript=timeline.render(items, speakers))
     try:
-        return llm.chat_json(prompts.PHOTO_MATCH_SYSTEM, user, max_tokens=48000).get("photos") or []
+        photos = llm.chat_json(prompts.PHOTO_MATCH_SYSTEM, user, max_tokens=48000).get("photos") or []
     except Exception:  # noqa: BLE001 - photos are optional evidence
         log.exception("photo matching failed")
-        return []
+        photos = []
+    _enforce_keyword_owners(photos, owners)
+    return photos
 
 
 def _apply_photo_attribution(images: list[dict], attr: dict, last_id: int) -> None:

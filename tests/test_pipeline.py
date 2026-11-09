@@ -175,3 +175,25 @@ def test_photo_keyword_hits_find_handwritten_words_in_transcript():
     next(i for i in it if i.get("id") == 4)["text"] = "Count it: one triplet, two triplet."
     txt = run._photo_keyword_hits(imgs, it, SEGS["segments"])
     assert "'triplet' -> #4 (keyu)" in txt and "orange" not in txt
+
+
+def test_keyword_owner_overrides_wrong_kid():
+    imgs = [{"kind": "lesson_book_page", "handwriting": ["Count! one trip-let"]}]
+    it = items()
+    for pid in (3, 4, 5):
+        next(i for i in it if i.get("id") == pid)["text"] = "one triplet two triplet"
+    segs = [{"kid": "ruyu", "from_id": 1, "to_id": 2}, {"kid": "keyu", "from_id": 3, "to_id": 5}]
+    owners = run._photo_keyword_owners(imgs, it, segs)
+    assert owners[1]["kid"] == "keyu" and owners[1]["word"] == "triplet"
+    photos = [{"photo": 1, "kid": "ruyu", "from_id": 1, "to_id": 2, "check": "agrees"}]
+    run._enforce_keyword_owners(photos, owners)
+    assert photos[0]["kid"] == "keyu" and (photos[0]["from_id"], photos[0]["to_id"]) == (3, 5)
+
+
+def test_keyword_owner_needs_one_kid_and_three_lines():
+    imgs = [{"kind": "lesson_book_page", "handwriting": ["triplet"]}]
+    it = items()
+    for pid in (2, 4, 5):
+        next(i for i in it if i.get("id") == pid)["text"] = "one triplet"
+    segs = [{"kid": "ruyu", "from_id": 1, "to_id": 3}, {"kid": "keyu", "from_id": 4, "to_id": 5}]
+    assert run._photo_keyword_owners(imgs, it, segs) == {}
