@@ -167,3 +167,11 @@ def test_group_members_inherit_kid_and_other_kids_pages_are_hidden():
     s = {"photos": [{"pages": [2, 3]}]}
     run._resolve_photo_notes(s, imgs, items(), {"R1": 100.0, "R2": 60.0}, [(1, 3)], "ruyu")
     assert s["photos"] == []
+
+
+def test_photo_keyword_hits_find_handwritten_words_in_transcript():
+    imgs = [{"kind": "lesson_book_page", "handwriting": ["Count! one trip-let (top, orange ink)"], "piece": ""}]
+    it = items()
+    next(i for i in it if i.get("id") == 4)["text"] = "Count it: one triplet, two triplet."
+    txt = run._photo_keyword_hits(imgs, it, SEGS["segments"])
+    assert "'triplet' -> #4 (keyu)" in txt and "orange" not in txt

@@ -46,24 +46,48 @@ Return JSON:
       "evidence": ["short quotes or facts with #ids that justify this"]}}
   ],
   "handoffs": [{{"at_id": 251, "description": "what marks the switch"}}],
-  "photos": [
-    {{"photo": 1, "kid": "ruyu|keyu|both|unknown", "from_id": 300, "to_id": 420,
-      "why": "which piece/exercise on the page matches what is taught in that span",
-      "check": "agrees|conflicts|not_discussed",
-      "check_note": "one sentence: does this photo support the kid split from the audio? e.g. a handwritten date matching this lesson, the teacher naming the exercise number"}}
-  ],
   "reasoning": "2-4 sentences explaining the overall call, including how timing compares to the usual split"
 }}
 Rules: segments are ordered, non-overlapping, and together cover #1..#{last_id}.
 Keep greetings, parent-teacher talk about a child, and packing up inside that child's segment.
 Use "none" only for long stretches that belong to neither lesson (e.g. a break, phone searching
-between lessons). Prefer few large segments; a child's lesson is normally one contiguous block.
-Give one "photos" entry per photo. For a lesson-book page, match the piece, exercise, page number,
-key, tempo or markings on the page to the part of the transcript where it is being worked on and
-return that span (from_id/to_id); the kid is whoever is being taught in that span. For homework
-notes, give the kid they belong to and null ids. Use null ids if the page is never discussed.
-Photos are an independent cross-check: if a page clearly belongs to the other child's span,
-say "conflicts" and reconsider the segments before answering."""
+between lessons). Prefer few large segments; a child's lesson is normally one contiguous block."""
+
+
+PHOTO_MATCH_SYSTEM = """You match photos of lesson-book pages to the moments in a music lesson where
+they were used, as an independent cross-check of which child each part of the lesson belongs to.
+Weigh evidence carefully. Strong: the teacher saying the words handwritten on the page (e.g. she
+counts "one triplet" and the page says "Count! one trip-let"), naming the piece or exercise
+number, describing the same passage. Medium: a handwritten date equal to this lesson's date (the
+page was assigned or worked on today), the child's level and repertoire. Weak: generic numbers such
+as metronome marks (many exercises use the same tempo), key or time signature alone.
+Pages from the same book or group usually belong to the same child. Return only JSON."""
+
+PHOTO_MATCH_USER = """Lesson date: {date}
+Children: {kids}
+
+Who is being taught when (already decided from the audio):
+{segments}
+
+Photos:
+{pages}
+
+Transcript lines that contain words written on each photo (automatic search, may include noise):
+{hits}
+
+Transcript (#id recording time speaker: text):
+{transcript}
+
+Return JSON:
+{{"photos": [
+  {{"photo": 1, "kid": "keyu|ruyu|both|unknown", "from_id": 300, "to_id": 420,
+    "evidence": ["strongest facts with #ids"],
+    "check": "agrees|conflicts|not_discussed",
+    "check_note": "one sentence for the parent: how this photo confirms (or questions) whose lesson it was"}}
+]}}
+Give one entry per photo. from_id/to_id is the whole stretch where the page is worked on (null if
+never discussed). For homework notes give the kid and null ids. "conflicts" means the photo's
+evidence points to a different child than the segment owner; explain it."""
 
 
 SUMMARY_SYSTEM = """You are MusicBuddy, a meticulous assistant for a family whose kids take

@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import re
+import unicodedata
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -199,6 +200,61 @@ def _consolidate_photos(images: list[dict], notes: list[dict]) -> None:
             img["group"] = str(p.get("group") or f"p{n}")
 
 
+_NOISE = {"above", "below", "bracket", "brackets", "system", "systems", "staff", "circled", "measure",
+          "measures", "note", "notes", "left", "right", "top", "bottom", "orange", "green", "blue", "black",
+          "pencil", "with", "around", "first", "last", "start", "end", "middle", "line", "lines", "horizontal",
+          "mark", "marks", "marking", "near", "over", "under", "page", "book", "unknown", "likely", "violin",
+          "exercise", "symbol", "arrow", "downward", "upward", "group", "beat", "opening", "several", "places",
+          "heart", "slur", "repeated", "margin", "center", "from", "previous", "lesson", "title",
+          "handwritten", "printed", "underlined", "small", "gray", "grey", "later", "number", "numbers",
+          "fingering", "fingerings", "read", "symbols", "wavy", "that", "this", "vertical", "midsystem",
+          "handdrawn", "second", "half", "must", "hear", "little", "chord", "chords", "bowing", "arrows"}
+
+
+def _norm(text: str) -> str:
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[-'’]", "", text.lower())
+
+
+def _photo_keyword_hits(images: list[dict], items: list[dict], segments: list[dict], per_photo: int = 10) -> str:
+    """Find transcript lines that contain words handwritten (or printed as the title) on each page.
+
+    Rarer words come first; words found on many lines are too generic to be evidence."""
+    lines = [(it, _norm(it["text"])) for it in timeline.phrases(items)]
+
+    def owner(pid):
+        return next((s["kid"] for s in segments if s["from_id"] <= pid <= s["to_id"]), "none")
+
+    out = []
+    for n, img in enumerate(images, 1):
+        if img.get("kind") != "lesson_book_page":
+            continue
+        words = " ".join(map(str, img.get("handwriting") or [])) + " " + str(img.get("piece") or "")
+        toks = list(dict.fromkeys(t for t in re.findall(r"[a-z]{4,}", _norm(words)) if t not in _NOISE))
+        found = {t: [it for it, norm in lines if re.search(rf"\b{t}", norm)] for t in toks}
+        ranked = sorted((t for t in toks if 0 < len(found[t]) <= 12), key=lambda t: len(found[t]))
+        hits = [f"'{t}' -> #{it['id']} ({owner(it['id'])}): {it['text'][:90]}"
+                for t in ranked for it in found[t][:3]]
+        out.append(f"- [photo {n}] words {toks[:12]}:\n    " + ("\n    ".join(hits[:per_photo]) or "no hits"))
+    return "\n".join(out) or "(no book pages)"
+
+
+def match_photos(date: str, items: list[dict], attr: dict, images: list[dict], speakers: dict) -> list[dict]:
+    if not images:
+        return []
+    segs = "\n".join(f"- {config.KIDS.get(s['kid'], {}).get('name', 'not a lesson')}: #{s['from_id']}-#{s['to_id']}"
+                     for s in attr["segments"])
+    user = prompts.PHOTO_MATCH_USER.format(
+        date=date, kids=_fmt_kids(), segments=segs, pages=_fmt_pages(images),
+        hits=_photo_keyword_hits(images, items, attr["segments"]),
+        transcript=timeline.render(items, speakers))
+    try:
+        return llm.chat_json(prompts.PHOTO_MATCH_SYSTEM, user, max_tokens=48000).get("photos") or []
+    except Exception:  # noqa: BLE001 - photos are optional evidence
+        log.exception("photo matching failed")
+        return []
+
+
 def _apply_photo_attribution(images: list[dict], attr: dict, last_id: int) -> None:
     """Use the whole-lesson attribution to set each photo's kid and the transcript span it belongs to."""
     def kid_at(pid: int):
@@ -217,7 +273,7 @@ def _apply_photo_attribution(images: list[dict], attr: dict, last_id: int) -> No
             img["kid"] = kid_at(a) if kid_at(a) in KID_IDS else img.get("kid", "unknown")
         elif said in (*KID_IDS, "both"):
             img["kid"] = said
-        img["why"] = p.get("why", "")
+        img["why"] = p.get("why") or "; ".join(map(str, p.get("evidence") or []))
         img["check"] = p.get("check", "")
         img["check_note"] = p.get("check_note", "")
     # Pages of the same piece belong to the same child.
@@ -489,9 +545,12 @@ def process(date: str, keep_work: bool = False) -> dict:
 
         set_status(date, "processing", "figuring out whose lesson is when")
         attr = attribute(date, recordings, items, notes, image_info)
-        _apply_photo_attribution(image_info, attr, timeline.phrases(items)[-1]["id"])
-        notes = _notes_from(image_info, texts)
         speakers = _speaker_names(attr)
+        if image_info:
+            set_status(date, "processing", "matching photos to the lesson")
+            attr["photos"] = match_photos(date, items, attr, image_info, speakers)
+            _apply_photo_attribution(image_info, attr, timeline.phrases(items)[-1]["id"])
+        notes = _notes_from(image_info, texts)
         durations = {r["id"]: r["duration"] for r in recordings}
 
         kid_ranges: dict[str, list[tuple[int, int]]] = {}
