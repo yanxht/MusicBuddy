@@ -63,6 +63,7 @@ python -m musicbuddy process 20261107   # run the pipeline locally for one date 
 python -m musicbuddy enqueue 20261107   # ask the cloud worker to (re)process a date
 python -m musicbuddy worker             # run the queue worker in the foreground
 python -m musicbuddy serve --port 8000  # run the web app locally
+python -m musicbuddy delete 20261107    # remove a lesson (raw files, outputs, index entry)
 ```
 
 ## Deploy

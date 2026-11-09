@@ -74,7 +74,7 @@ def _process_images(date: str, images: list[Path], work: Path) -> list[dict]:
         try:
             info = llm.chat_json(prompts.IMAGE_SYSTEM,
                                  [{"type": "text", "text": prompts.IMAGE_USER}, part],
-                                 model=config.VISION_MODEL, max_tokens=6000)
+                                 model=config.VISION_MODEL, max_tokens=16000)
         except Exception as e:  # noqa: BLE001 - an unreadable photo should not fail the lesson
             log.warning("image read failed for %s: %s", p.name, e)
             info = {"kind": "other", "kid": "unknown", "title": p.name, "text": "", "items": []}
@@ -158,7 +158,7 @@ def attribute(date: str, recordings: list[dict], items: list[dict], notes: list[
         date=date, recordings=rec_lines, total=timeline.fmt_ts(total), kids=_fmt_kids(),
         notes=_fmt_notes(notes), pages=_fmt_pages(images), transcript=timeline.render(items),
         last_id=last_id)
-    result = llm.chat_json(prompts.ATTRIBUTION_SYSTEM, user, max_tokens=16000)
+    result = llm.chat_json(prompts.ATTRIBUTION_SYSTEM, user, max_tokens=64000)
     result["segments"] = _clean_segments(result.get("segments", []), last_id)
     return result
 
@@ -283,7 +283,7 @@ def summarize_kid(date: str, kid: str, meta: dict, items: list[dict], ranges: li
         previous=_previous_assignments(date, kid), notes=_fmt_notes(notes, kid),
         pages=_fmt_pages(images, kid),
         speakers=", ".join(sorted(set(speakers.values()))) or "unknown", transcript=transcript)
-    s = llm.chat_json(prompts.SUMMARY_SYSTEM, user, max_tokens=24000)
+    s = llm.chat_json(prompts.SUMMARY_SYSTEM, user, max_tokens=64000)
     return _resolve_summary(s, items, durations, ranges)
 
 
@@ -299,7 +299,7 @@ def update_profile(date: str, kid: str, summary: dict) -> None:
             p.pop("clip", None)
     new = llm.chat_json(prompts.PROFILE_SYSTEM, prompts.PROFILE_USER.format(
         profile=json.dumps(prof, ensure_ascii=False) if prof else "(none)", date=date,
-        summary=json.dumps(slim, ensure_ascii=False)), max_tokens=6000)
+        summary=json.dumps(slim, ensure_ascii=False)), max_tokens=16000)
     new["updated"] = date
     storage.put_json(config.DATA_CONTAINER, path, new)
 

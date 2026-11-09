@@ -19,6 +19,8 @@ def main() -> None:
     e = sub.add_parser("enqueue", help="queue a lesson for the cloud worker")
     e.add_argument("date")
     sub.add_parser("worker", help="run the queue worker in the foreground")
+    d = sub.add_parser("delete", help="delete a lesson's raw files, outputs and index entry")
+    d.add_argument("date")
     s = sub.add_parser("serve", help="run the web app")
     s.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
     s.add_argument("--reload", action="store_true")
@@ -36,6 +38,17 @@ def main() -> None:
     elif args.cmd == "worker":
         from . import worker
         worker.loop()
+    elif args.cmd == "delete":
+        from . import config, storage
+        if not args.date.isdigit() or len(args.date) != 8:
+            raise SystemExit("date must be YYYYMMDD")
+        for cname in (config.RAW_CONTAINER, config.DATA_CONTAINER):
+            for b in storage.list_blobs(cname, f"{args.date}/"):
+                storage.container(cname).delete_blob(b.name)
+        index = storage.get_json(config.DATA_CONTAINER, "index.json", {"lessons": []})
+        index["lessons"] = [l for l in index["lessons"] if l["date"] != args.date]
+        storage.put_json(config.DATA_CONTAINER, "index.json", index)
+        print("deleted", args.date)
     elif args.cmd == "serve":
         import uvicorn
         uvicorn.run("musicbuddy.web.app:app", host="0.0.0.0", port=args.port, reload=args.reload)

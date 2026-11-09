@@ -82,7 +82,7 @@ def chat_json(system: str, user: str | list, model: str | None = None,
 
 
 def chat_stream(messages: list[dict], model: str | None = None,
-                max_tokens: int = 4000) -> Iterator[str]:
+                max_tokens: int = 16000) -> Iterator[str]:
     stream = client().chat.completions.create(
         model=model or config.LLM_MODEL, messages=messages, max_tokens=max_tokens, stream=True)
     for chunk in stream:

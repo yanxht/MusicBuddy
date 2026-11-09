@@ -38,7 +38,7 @@ def translate_summary(summary: dict) -> dict:
         chunk = texts[start:start + BATCH]
         res = llm.chat_json(prompts.TRANSLATE_SYSTEM, prompts.TRANSLATE_USER.format(
             n=len(chunk), payload=json.dumps({"items": chunk}, ensure_ascii=False)),
-            model=config.VISION_MODEL, max_tokens=16000)
+            model=config.VISION_MODEL, max_tokens=32000)
         items = res.get("items", [])
         if len(items) != len(chunk):
             raise RuntimeError(f"translation returned {len(items)} of {len(chunk)} strings")
