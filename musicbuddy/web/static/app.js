@@ -347,20 +347,25 @@ async function viewLesson(date, kid, tab) {
   const images = doc.images || [];
   const byKey = Object.fromEntries(images.filter(imgKey).map((im) => [imgKey(im), im]));
   const notesPhotos = images.filter((im) => im.kind === "homework_notes" && forKid(im, kid) && imgKey(im));
-  const pagePhotos = (S.photos || []).filter((p) => byKey[p.key]);
-  const shown = new Set([...pagePhotos.map((p) => p.key), ...notesPhotos.map(imgKey)]);
+  const pageKeys = (p) => (p.keys || [p.key]).filter((k) => byKey[k]);
+  const pagePhotos = (S.photos || []).filter((p) => pageKeys(p).length);
+  const shown = new Set([...pagePhotos.flatMap(pageKeys), ...notesPhotos.map(imgKey)]);
   const music = pagePhotos.map((p) => {
-    const im = byKey[p.key];
-    const sec = (S.sections || []).find((x) => (x.photos || []).includes(p.key));
+    const keys = pageKeys(p);
+    const im = byKey[keys[0]];
+    const title = im.piece || im.title || im.name;
+    const sec = (S.sections || []).find((x) => (x.photos || []).some((k) => keys.includes(k)));
     return `
-    <div class="card score">
-      <button class="score-img" data-img="${esc(p.key)}"><img src="${imgUrl(date, p.key)}" alt="${esc(im.title)}" loading="lazy"></button>
+    <div class="card score${keys.length > 1 ? " multi" : ""}">
+      <div class="score-pages n${Math.min(keys.length, 3)}">${keys.map((k) => `<button class="score-img" data-img="${esc(k)}"><img src="${imgUrl(date, k)}" alt="${esc(byKey[k].title)}" loading="lazy"></button>`).join("")}</div>
       <div class="score-body">
         <span class="pstatus ${esc(p.status)}">${esc(L.pstatus[p.status] || p.status)}</span>
-        <h3>${esc(im.title || im.name)}</h3>
+        <h3>${esc(title)}</h3>
+        ${keys.some((k) => byKey[k].title !== title) ? `<div class="material">${keys.map((k) => esc(byKey[k].title)).join(" · ")}</div>` : ""}
+        ${keys.flatMap((k) => byKey[k].dates || []).length ? `<div class="material">🗓 ${esc([...new Set(keys.flatMap((k) => byKey[k].dates || []))].join(" · "))}</div>` : ""}
         ${sec ? `<div class="material">↳ ${esc(sec.title)}</div>` : ""}
         ${p.summary ? `<p class="sum">${esc(p.summary)}</p>` : ""}
-        ${p.clip ? clipBtn(date, p.clip, im.title, `${L.playPart} · ${clipTime(date, p.clip)} · ${mins(Math.max(1, Math.round((p.clip.end - p.clip.start) / 60)))}`) : ""}
+        ${p.clip ? clipBtn(date, p.clip, title, `${L.playPart} · ${clipTime(date, p.clip)} · ${mins(Math.max(1, Math.round((p.clip.end - p.clip.start) / 60)))}`) : ""}
         ${(p.markings || []).length ? `<div class="marks-h">${L.markings}</div><ul class="marks">${p.markings.map((m) => `
           <li><span class="mark">${esc(m.mark)}</span><span class="ptext">${esc(m.meaning)}</span>${clipBtn(date, m.clip, m.mark)}</li>`).join("")}</ul>` : ""}
       </div>

@@ -141,20 +141,23 @@ def _fmt_notes(notes: list[dict], kid: str | None = None) -> str:
 
 
 def _fmt_pages(images: list[dict], kid: str | None = None, books_only: bool = False) -> str:
-    """Photos as '[photo N]' lines; N is the 1-based position in `images` and is how prompts cite them."""
+    """Photos as '[photo N]' lines; N is the 1-based position in `images` and is how prompts cite them.
+
+    With `kid`, only that child's (or both children's) pages are listed."""
     rows = []
     for n, i in enumerate(images, 1):
         if books_only and i.get("kind") != "lesson_book_page":
             continue
-        if kid and i.get("kid") not in (kid, "both", "unknown"):
+        if kid and i.get("kid") not in (kid, "both"):
             continue
         span = f", matched to #{i['span'][0]}-#{i['span'][1]}" if i.get("span") else ""
+        group = f", group: {i['group']}" if i.get("group") else ""
         body = (i.get("music") or i.get("text") or "")[:800]
         if i.get("handwriting"):
             body += "\n  Handwritten: " + "; ".join(map(str, i["handwriting"]))[:800]
         if i.get("dates"):
             body += "\n  Dates written on page: " + ", ".join(map(str, i["dates"]))
-        rows.append(f"- [photo {n}] {i.get('kind')} (kid: {i.get('kid', 'unknown')}{span}): "
+        rows.append(f"- [photo {n}] {i.get('kind')} (kid: {i.get('kid', 'unknown')}{group}{span}): "
                     f"{i.get('title', '')}\n  {body}")
     return "\n".join(rows) or "(none)"
 
@@ -174,6 +177,26 @@ def _as_int(x) -> int | None:
         return int(x)
     except (TypeError, ValueError):
         return None
+
+
+def _consolidate_photos(images: list[dict], notes: list[dict]) -> None:
+    """Read all book pages together: fix titles and group pages that belong to the same piece."""
+    if not any(i.get("kind") == "lesson_book_page" for i in images):
+        return
+    try:
+        res = llm.chat_json(prompts.PHOTO_SET_SYSTEM, prompts.PHOTO_SET_USER.format(
+            pages=_fmt_pages(images, books_only=True), notes=_fmt_notes(notes)),
+            model=config.VISION_MODEL, max_tokens=16000)
+    except Exception:  # noqa: BLE001 - keep the per-photo titles
+        log.exception("photo consolidation failed")
+        return
+    for p in res.get("photos") or []:
+        n = _as_int(p.get("photo"))
+        if n and 1 <= n <= len(images) and images[n - 1].get("kind") == "lesson_book_page":
+            img = images[n - 1]
+            img["title"] = p.get("title") or img.get("title")
+            img["piece"] = p.get("piece", "")
+            img["group"] = str(p.get("group") or f"p{n}")
 
 
 def _apply_photo_attribution(images: list[dict], attr: dict, last_id: int) -> None:
@@ -197,11 +220,21 @@ def _apply_photo_attribution(images: list[dict], attr: dict, last_id: int) -> No
         img["why"] = p.get("why", "")
         img["check"] = p.get("check", "")
         img["check_note"] = p.get("check_note", "")
+    # Pages of the same piece belong to the same child.
+    owners: dict[str, set] = {}
+    for img in images:
+        if img.get("group") and img.get("kid") in KID_IDS:
+            owners.setdefault(img["group"], set()).add(img["kid"])
+    for img in images:
+        found = owners.get(img.get("group"), set())
+        if img.get("kid") not in KID_IDS and len(found) == 1:
+            img["kid"] = next(iter(found))
 
 
 def _attach_section_photos(s: dict, images: list[dict], kid: str) -> None:
     """Turn section photo numbers into image keys; place any unreferenced matched page by span overlap."""
-    keys = {n: Path(i["blob"]).stem for n, i in enumerate(images, 1) if i.get("blob")}
+    keys = {n: Path(i["blob"]).stem for n, i in enumerate(images, 1)
+            if i.get("blob") and i.get("kid") in (kid, "both")}
     used = set()
     sections = s.get("sections", [])
     for sec in sections:
@@ -370,19 +403,23 @@ def summarize_kid(date: str, kid: str, meta: dict, items: list[dict], ranges: li
         speakers=", ".join(sorted(set(speakers.values()))) or "unknown", transcript=transcript)
     s = llm.chat_json(prompts.SUMMARY_SYSTEM, user, max_tokens=64000)
     _attach_section_photos(s, images, kid)
-    _resolve_photo_notes(s, images, items, durations, ranges)
+    _resolve_photo_notes(s, images, items, durations, ranges, kid)
     return _resolve_summary(s, items, durations, ranges)
 
 
-def _resolve_photo_notes(s: dict, images: list[dict], items, durations, ranges) -> None:
+def _resolve_photo_notes(s: dict, images: list[dict], items, durations, ranges, kid: str | None = None) -> None:
     """Photo numbers -> image keys; the page clip spans its whole stretch, marking clips stay short."""
     out = []
     for p in s.get("photos") or []:
-        n = _as_int(p.get("photo"))
-        if not n or not 1 <= n <= len(images) or not images[n - 1].get("blob"):
+        nums = [n for n in (_as_int(x) for x in (p.get("pages") or [p.get("photo")]))
+                if n and 1 <= n <= len(images) and images[n - 1].get("blob")
+                and (kid is None or images[n - 1].get("kid") in (kid, "both"))]
+        if not nums:
             continue
+        keys = list(dict.fromkeys(Path(images[n - 1]["blob"]).stem for n in nums))
         out.append({
-            "key": Path(images[n - 1]["blob"]).stem,
+            "keys": keys,
+            "key": keys[0],
             "status": p.get("status", ""),
             "summary": p.get("summary", ""),
             "clip": _resolve_clip(p.get("clip"), items, durations, ranges, None),
@@ -442,6 +479,7 @@ def process(date: str, keep_work: bool = False) -> dict:
         set_status(date, "processing", "reading photos and notes")
         image_info = _process_images(date, images, work)
         notes = _notes_from(image_info, texts)
+        _consolidate_photos(image_info, notes)
 
         recordings, transcripts, silences = _process_audio(date, audios, work)
         items = timeline.build(recordings, transcripts, silences)

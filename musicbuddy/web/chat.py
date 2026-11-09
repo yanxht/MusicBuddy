@@ -28,7 +28,7 @@ def _slim_summary(s: dict) -> dict:
                         "ids": [sec.get("from_id"), sec.get("to_id")], "summary": sec.get("summary"),
                         "points": [{**p, "clip": _ids(p.get("clip"))} for p in sec.get("points", [])]}
                        for sec in s.get("sections", [])]
-    out["photos"] = [{"photo": p.get("key"), "status": p.get("status"), "summary": p.get("summary"),
+    out["photos"] = [{"photos": p.get("keys") or [p.get("key")], "status": p.get("status"), "summary": p.get("summary"),
                       "clip": _ids(p.get("clip")),
                       "markings": [{**m, "clip": _ids(m.get("clip"))} for m in p.get("markings", [])]}
                      for p in s.get("photos", [])]

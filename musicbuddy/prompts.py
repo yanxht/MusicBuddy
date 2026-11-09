@@ -132,7 +132,7 @@ within this transcript. For teacher_focus give 2-3 short clips of the clearest m
   "parent_notes": ["things for the parent: logistics, questions raised, what to supervise"],
   "glossary": [{{"term": "musical term used in the lesson", "meaning": "kid-friendly definition"}}],
   "photos": [
-    {{"photo": 1, "status": "worked_on|mentioned|not_covered",
+    {{"pages": [1, 2], "status": "worked_on|mentioned|not_covered",
       "summary": "1-2 sentences: what was done with this page today (or why it matters if not covered)",
       "clip": [300, 420],
       "markings": [
@@ -146,10 +146,14 @@ Sections must follow the lesson chronologically and together cover the whole les
 Aim for 6-14 sections, 2-8 points each, 3-6 teacher_focus themes, and include every homework item
 from the notes in homework_check. In each section, "photos" lists the photo numbers of book pages
 used in that section (empty list if none); use a photo's printed title, page and measure numbers to
-name the material precisely. Give one "photos" entry per book-page photo listed above: "clip" spans
+name the material precisely. Give one "photos" entry per piece shown in the book-page photos above
+(photos with the same group are pages of one piece and go in one entry's "pages"): "clip" spans
 the whole stretch where that page is worked on (null if not covered), and "markings" explains the
 handwritten markings, each linked to the moment the teacher talks about it when she does (clip may
-be null for older markings). Do not split a page into pieces; treat it as one artifact."""
+be null for older markings). Only list markings that carry meaning (words, tempo marks, circled or
+bracketed spots, arrows, symbols the teacher explained); skip plain fingering numbers unless the
+teacher talks about them; skip handwritten dates (they are shown separately); at most 6 per piece. Do not split a page into pieces; treat it as one
+artifact. Only describe pages that belong to this child's lesson."""
 
 
 PROFILE_SYSTEM = """You maintain a concise learning profile for a child music student, updated
@@ -177,7 +181,9 @@ Return JSON:
 
 IMAGE_SYSTEM = "You read photos for a kids' music-lesson app. Return only JSON."
 IMAGE_USER = """This photo was attached to a music lesson folder. The family has two kids,
-Keyu (10) and Ruyu (7). Classify it and extract everything useful.
+Keyu (10) and Ruyu (7). Classify it and extract everything useful. In exercise and etude books a
+large number printed left of the first staff is usually the exercise/piece number, not a measure
+number; say which you think it is.
 JSON: {
  "kind": "homework_notes|lesson_book_page|other",
  "kid": "keyu|ruyu|both|unknown",
@@ -188,6 +194,24 @@ JSON: {
  "handwriting": ["for book pages: every handwritten marking, verbatim, with where it is, e.g. 'Count! one trip-let (top, above m.1)', '♩=44', dates like '11-7', circled spots, brackets, fingerings, bowing marks"],
  "dates": ["handwritten lesson dates found on the page, as written, e.g. '10-24', '11-7'"]
 }"""
+
+
+PHOTO_SET_SYSTEM = """You reconcile photos of lesson-book pages taken at one music lesson. Each
+photo was read on its own, so titles can be wrong or missing. Look at all of them together.
+Return only JSON."""
+
+PHOTO_SET_USER = """Photos read individually:
+{pages}
+
+Homework notes for context:
+{notes}
+
+Work out which photos show the same piece or exercise (e.g. consecutive pages, measure numbers
+that continue, same key and figuration, or numbered exercises from the same book), and give each
+photo a corrected short title. Use the homework notes to recognise named pieces or books, but do
+not invent a name you can't support; add "(likely)" when inferring.
+Return {{"photos": [{{"photo": 1, "group": "short id shared by photos of the same piece",
+  "piece": "piece or exercise name", "title": "e.g. 'Perpetual Motion (Bohm), p.22'"}}]}}"""
 
 
 TRANSLATE_SYSTEM = """Translate a child's music-lesson notes from English into natural, warm

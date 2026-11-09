@@ -148,3 +148,22 @@ def test_resolve_photo_notes():
     p = s["photos"][0]
     assert p["key"] == "abc123" and p["clip"]["to"] == 3  # page clip is not capped
     assert [m["mark"] for m in p["markings"]] == ["Count!"]
+
+
+def test_resolve_photo_notes_groups_pages():
+    s = {"photos": [{"pages": [2, "3", 3, 99], "status": "not_covered", "clip": None}]}
+    run._resolve_photo_notes(s, photos(), items(), {"R1": 100.0, "R2": 60.0}, [(1, 5)])
+    assert s["photos"][0]["keys"] == ["abc123", "def456"] and s["photos"][0]["clip"] is None
+
+
+def test_group_members_inherit_kid_and_other_kids_pages_are_hidden():
+    imgs = photos()
+    imgs[1]["group"] = imgs[2]["group"] = "mds"
+    attr = {**SEGS, "photos": [{"photo": 2, "from_id": 4, "to_id": 5, "check": "agrees"},
+                               {"photo": 3, "kid": "unknown", "check": "not_discussed"}]}
+    run._apply_photo_attribution(imgs, attr, 5)
+    assert imgs[2]["kid"] == "keyu"
+    assert "[photo 2]" not in run._fmt_pages(imgs, "ruyu", books_only=True)
+    s = {"photos": [{"pages": [2, 3]}]}
+    run._resolve_photo_notes(s, imgs, items(), {"R1": 100.0, "R2": 60.0}, [(1, 3)], "ruyu")
+    assert s["photos"] == []

@@ -150,6 +150,10 @@ h2.section .chip-btn { font-size: 13px; }
 
 /* sheet music (book page photos): always shown whole, never cropped into pieces */
 .score { display: grid; grid-template-columns: minmax(180px, 300px) 1fr; gap: 22px; align-items: start; }
+.score-pages { display: grid; gap: 8px; position: sticky; top: 70px; }
+.score.multi { grid-template-columns: minmax(240px, 440px) 1fr; }
+.score-pages.n2 { grid-template-columns: 1fr 1fr; }
+.score-pages.n3 { grid-template-columns: 1fr 1fr 1fr; }
 .score-img { display: block; width: 100%; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 0 0 1px var(--line); cursor: zoom-in; }
 .score-img img { display: block; width: 100%; max-height: 420px; object-fit: contain; background: #fafafa; }
 .score-body h3 { margin: 8px 0 2px; font-size: 19px; letter-spacing: -0.01em; }
@@ -331,6 +335,8 @@ body.has-player .ask-fab { bottom: calc(96px + env(safe-area-inset-bottom)); }
   .points li { flex-wrap: wrap; }
   .points li .ptype { width: auto; }
   .score { grid-template-columns: 1fr; gap: 12px; }
+  .score.multi { grid-template-columns: 1fr; }
+  .score-pages { position: static; }
   .score-img img { max-height: 360px; }
   .marks .mark { max-width: none; flex-basis: 100%; }
   .marks li { flex-wrap: wrap; gap: 6px 12px; }

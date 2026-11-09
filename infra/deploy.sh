@@ -14,6 +14,16 @@ PY=.venv/bin/python
 
 val() { $PY -c "from dotenv import dotenv_values; print(dotenv_values('.env')['$1'])"; }
 
+# A redeploy restarts the worker; don't cut off a lesson that is mid-processing.
+BUSY=$($PY -c "
+from musicbuddy import storage, config
+print(' '.join(b.name[:8] for b in storage.container(config.DATA_CONTAINER).list_blobs()
+      if b.name.endswith('/status.json') and (storage.get_json(config.DATA_CONTAINER, b.name) or {}).get('state') == 'processing'))")
+if [[ -n "$BUSY" && "${FORCE:-0}" != "1" ]]; then
+  echo "Lessons still processing: $BUSY. Wait, or re-run with FORCE=1." >&2
+  exit 1
+fi
+
 az group create -n "$RG" -l "$LOC" -o none
 
 if ! az acr show -n "$ACR" -g "$RG" -o none 2>/dev/null; then

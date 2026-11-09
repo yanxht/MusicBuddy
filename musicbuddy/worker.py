@@ -7,7 +7,9 @@ from . import config, storage
 from .pipeline import run
 
 log = logging.getLogger(__name__)
-VISIBILITY_S = 3600
+# Short lease renewed while working: if the container is replaced mid-job, the job reappears quickly.
+VISIBILITY_S = 300
+HEARTBEAT_S = 120
 
 
 def handle(msg) -> None:
@@ -35,13 +37,32 @@ def loop(stop: threading.Event | None = None, poll_s: int = 20) -> None:
             stop.wait(poll_s)
             continue
         msg = msgs[0]
+        done = threading.Event()
+        lease = {"receipt": msg.pop_receipt}
+
+        def heartbeat():
+            while not done.wait(HEARTBEAT_S):
+                try:
+                    r = q.update_message(msg.id, lease["receipt"], visibility_timeout=VISIBILITY_S)
+                    lease["receipt"] = r.pop_receipt
+                except Exception:  # noqa: BLE001
+                    log.warning("lease renewal failed for %s", msg.content)
+
+        hb = threading.Thread(target=heartbeat, daemon=True)
+        hb.start()
+        ok = False
         try:
             handle(msg)
-            q.delete_message(msg)
+            ok = True
         except Exception:  # noqa: BLE001
             log.exception("job failed (attempt %s): %s", msg.dequeue_count, msg.content)
-            if msg.dequeue_count >= 3:
-                q.delete_message(msg)
+        done.set()
+        hb.join(timeout=60)  # never race a lease renewal for the pop receipt
+        if ok or msg.dequeue_count >= 3:
+            try:
+                q.delete_message(msg.id, lease["receipt"])
+            except Exception:  # noqa: BLE001
+                log.exception("could not delete job %s", msg.content)
 
 
 def start_background() -> threading.Event:
