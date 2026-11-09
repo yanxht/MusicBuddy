@@ -487,7 +487,7 @@ async function viewKid(kid) {
 async function viewUpload() {
   const today = new Date();
   const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  view.innerHTML = `
+  view.innerHTML = `<div class="narrow">
     <p class="eyebrow">New lesson</p><h1 class="title">Add a lesson</h1>
     <p class="muted">Recordings, the homework note screenshot, and any lesson-book photos. Anything dropped in the
       <b>Music Lesson Recording</b> Google Drive folder (one folder per date, like <code>20261107</code>) is picked up automatically too.</p>
@@ -501,7 +501,7 @@ async function viewUpload() {
     <textarea class="input" id="up-notes" rows="4" placeholder="Paste the notes you sent the teacher"></textarea>
     <div style="margin-top:20px"><button class="btn primary" id="up-go" disabled>Upload &amp; process</button></div>
     <div class="progress" hidden id="up-prog"><div></div></div>
-    <div class="muted small" id="up-msg" style="margin-top:10px"></div>`;
+    <div class="muted small" id="up-msg" style="margin-top:10px"></div></div>`;
   let files = [];
   const list = () => {
     $("#up-list").innerHTML = files.map((f) => `<div>• ${esc(f.name)} <span class="muted">${(f.size / 1e6).toFixed(1)} MB</span></div>`).join("");

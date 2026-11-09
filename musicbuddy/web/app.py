@@ -6,6 +6,7 @@ import re
 import threading
 import time
 from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,18 +27,21 @@ DATE_RE = re.compile(r"^\d{8}$")
 REC_RE = re.compile(r"^R\d{1,2}$")
 MAX_UPLOAD_BYTES = 600 * 1024 * 1024
 
-app = FastAPI(title="MusicBuddy", docs_url=None, redoc_url=None, openapi_url=None)
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("azure").setLevel(logging.WARNING)
+    if os.getenv("MB_RUN_WORKER", "0") == "1":
+        from .. import worker
+        worker.start_background()
+    yield
+
+
+app = FastAPI(title="MusicBuddy", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 _signer = URLSafeTimedSerializer(config.SESSION_SECRET, salt="mb-session")
 _attempts: dict[str, deque] = defaultdict(deque)
 _attempt_lock = threading.Lock()
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    if os.getenv("MB_RUN_WORKER", "0") == "1":
-        from .. import worker
-        worker.start_background()
 
 
 @app.middleware("http")

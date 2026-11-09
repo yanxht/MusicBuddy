@@ -69,6 +69,15 @@ def test_resolve_clip_stays_in_one_recording_and_range():
     assert run._resolve_clip("bad", it, durs, [(1, 5)]) is None
 
 
+def test_resolve_clip_caps_long_point_clips():
+    it = items()
+    durs = {"R1": 100.0, "R2": 60.0}
+    capped = run._resolve_clip([1, 3], it, durs, [(1, 5)], max_s=10)
+    assert capped["to"] == 2  # phrase 3 ends 31s after phrase 1 starts
+    whole = run._resolve_clip([1, 3], it, durs, [(1, 5)], max_s=None)
+    assert whole["to"] == 3
+
+
 def test_span_seconds():
     assert run._span_seconds(items(), 1, 3) == 31
     assert run._span_seconds(items(), 3, 5) == (32 - 30) + (7 - 2)
