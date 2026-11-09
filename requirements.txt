@@ -1,0 +1,11 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+itsdangerous>=2.2
+azure-storage-blob>=12.20
+azure-storage-queue>=12.10
+httpx>=0.27
+openai>=1.40
+python-dotenv>=1.0
+pillow>=10.0
+pillow-heif>=0.18
