@@ -365,6 +365,7 @@ async function viewLesson(date, kid, tab) {
         ${keys.flatMap((k) => byKey[k].dates || []).length ? `<div class="material">🗓 ${esc([...new Set(keys.flatMap((k) => byKey[k].dates || []))].join(" · "))}</div>` : ""}
         ${sec ? `<div class="material">↳ ${esc(sec.title)}</div>` : ""}
         ${p.summary ? `<p class="sum">${esc(p.summary)}</p>` : ""}
+        ${im.check_note ? `<div class="material">🔎 ${esc(im.check_note)}</div>` : ""}
         ${p.clip ? clipBtn(date, p.clip, title, `${L.playPart} · ${clipTime(date, p.clip)} · ${mins(Math.max(1, Math.round((p.clip.end - p.clip.start) / 60)))}`) : ""}
         ${(p.markings || []).length ? `<div class="marks-h">${L.markings}</div><ul class="marks">${p.markings.map((m) => `
           <li><span class="mark">${esc(m.mark)}</span><span class="ptext">${esc(m.meaning)}</span>${clipBtn(date, m.clip, m.mark)}</li>`).join("")}</ul>` : ""}
