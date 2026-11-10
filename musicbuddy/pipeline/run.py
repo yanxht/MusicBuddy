@@ -295,7 +295,7 @@ def match_photos(date: str, items: list[dict], attr: dict, images: list[dict], s
         f"{config.KIDS[o['kid']]['name']}'s lesson (#{min(o['ids'])}-#{max(o['ids'])})"
         for n, o in owners.items()) or "(no decisive matches)"
     user = prompts.PHOTO_MATCH_USER.format(
-        date=date, kids=_fmt_kids(), segments=segs, pages=_fmt_pages(images),
+        date=date, kids=_fmt_kids(date), segments=segs, pages=_fmt_pages(images),
         hits=_photo_keyword_hits(images, items, attr["segments"]), owners=owner_txt,
         transcript=timeline.render(items, speakers))
     try:
@@ -364,10 +364,10 @@ def _attach_section_photos(s: dict, images: list[dict], kid: str) -> None:
             best["photos"].append(keys[n])
 
 
-def _fmt_kids() -> str:
+def _fmt_kids(date: str) -> str:
     rows = []
     for k, v in config.KIDS.items():
-        prof = storage.get_json(config.DATA_CONTAINER, f"profiles/{k}.json") or {}
+        prof = profile_before(k, date)
         brief = {x: prof.get(x) for x in ("current_repertoire", "scales_etudes", "health_or_context") if prof.get(x)}
         rows.append(f"- {v['name']} (id '{k}'), age {v['age']}. {v['seed']}"
                     + (f" Recent profile: {json.dumps(brief, ensure_ascii=False)}" if brief else ""))
@@ -381,7 +381,7 @@ def attribute(date: str, recordings: list[dict], items: list[dict], notes: list[
     rec_lines = "\n".join(f"- {r['id']}: {r['name']} ({timeline.fmt_ts(r['duration'])})" for r in recordings)
     total = sum(r["duration"] for r in recordings)
     user = prompts.ATTRIBUTION_USER.format(
-        date=date, recordings=rec_lines, total=timeline.fmt_ts(total), kids=_fmt_kids(),
+        date=date, recordings=rec_lines, total=timeline.fmt_ts(total), kids=_fmt_kids(date),
         notes=_fmt_notes(notes), pages=_fmt_pages(images), transcript=timeline.render(items),
         last_id=last_id)
     result = llm.chat_json(prompts.ATTRIBUTION_SYSTEM, user, max_tokens=64000)
@@ -501,7 +501,7 @@ def summarize_kid(date: str, kid: str, meta: dict, items: list[dict], ranges: li
                   notes, images, speakers: dict, durations: dict) -> dict:
     k = config.KIDS[kid]
     transcript = "\n".join(timeline.render(items, speakers, r) for r in ranges)
-    profile = storage.get_json(config.DATA_CONTAINER, f"profiles/{kid}.json") or {}
+    profile = profile_before(kid, date)
     user = prompts.SUMMARY_USER.format(
         kid_name=k["name"], age=k["age"], seed=k["seed"], instrument=meta["instrument"],
         teacher=meta["teacher"] or config.TEACHER_NAME, date=date,
@@ -525,12 +525,17 @@ def _resolve_photo_notes(s: dict, images: list[dict], items, durations, ranges, 
         if not nums:
             continue
         keys = list(dict.fromkeys(Path(images[n - 1]["blob"]).stem for n in nums))
+        status, clip_ref = p.get("status", ""), p.get("clip")
+        spans = [images[n - 1]["span"] for n in nums if images[n - 1].get("span")]
+        if status == "not_covered" and spans:
+            # Photo matching found the page discussed in this lesson; don't call it untouched.
+            status, clip_ref = "mentioned", [min(a for a, _ in spans), max(b for _, b in spans)]
         out.append({
             "keys": keys,
             "key": keys[0],
-            "status": p.get("status", ""),
+            "status": status,
             "summary": p.get("summary", ""),
-            "clip": _resolve_clip(p.get("clip"), items, durations, ranges, None),
+            "clip": _resolve_clip(clip_ref, items, durations, ranges, None),
             "markings": [{"mark": m.get("mark", ""), "meaning": m.get("meaning", ""),
                           "clip": _resolve_clip(m.get("clip"), items, durations, ranges)}
                          for m in p.get("markings") or [] if m.get("mark")],
@@ -543,16 +548,30 @@ def update_profile(date: str, kid: str, summary: dict) -> None:
     prof = storage.get_json(config.DATA_CONTAINER, path) or {}
     if prof.get("updated", "") > date:
         return  # never let an older lesson overwrite a newer profile
+    base = profile_before(kid, date)
+    snap = f"profiles/{kid}/before-{date}.json"
+    if not storage.exists(config.DATA_CONTAINER, snap):
+        storage.put_json(config.DATA_CONTAINER, snap, base)
     slim = {k: summary.get(k) for k in ("headline", "overview", "teacher_focus", "assignments", "sections")}
     for sec in slim.get("sections") or []:
         sec.pop("clip", None)
         for p in sec.get("points", []):
             p.pop("clip", None)
     new = llm.chat_json(prompts.PROFILE_SYSTEM, prompts.PROFILE_USER.format(
-        profile=json.dumps(prof, ensure_ascii=False) if prof else "(none)", date=date,
+        profile=json.dumps(base, ensure_ascii=False) if base else "(none)", date=date,
         summary=json.dumps(slim, ensure_ascii=False)), max_tokens=16000)
     new["updated"] = date
     storage.put_json(config.DATA_CONTAINER, path, new)
+
+
+def profile_before(kid: str, date: str) -> dict:
+    """The child's profile as it was before this lesson. Reprocessing a lesson must not read back
+    its own earlier (possibly wrong) output, or mistakes would reinforce themselves."""
+    snap = storage.get_json(config.DATA_CONTAINER, f"profiles/{kid}/before-{date}.json")
+    if snap is not None:
+        return snap
+    prof = storage.get_json(config.DATA_CONTAINER, f"profiles/{kid}.json") or {}
+    return prof if prof.get("updated", "") < date else {}
 
 
 def _update_index(doc: dict) -> None:

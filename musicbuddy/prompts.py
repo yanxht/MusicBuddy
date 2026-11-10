@@ -180,7 +180,8 @@ name the material precisely. Give one "photos" entry per piece shown in the book
 (photos with the same group are pages of one piece and go in one entry's "pages"): "clip" spans
 the whole stretch where that page is worked on (null if not covered), and "markings" explains the
 handwritten markings, each linked to the moment the teacher talks about it when she does (clip may
-be null for older markings). Only list markings that carry meaning (words, tempo marks, circled or
+be null for older markings). A page listed as "matched to #a-#b" was found being used at those
+lines: describe what happened there and do not mark it not_covered. Only list markings that carry meaning (words, tempo marks, circled or
 bracketed spots, arrows, symbols the teacher explained); skip plain fingering numbers unless the
 teacher talks about them; skip handwritten dates (they are shown separately); at most 6 per piece. Do not split a page into pieces; treat it as one
 artifact. Only describe pages that belong to this child's lesson."""

@@ -197,3 +197,20 @@ def test_keyword_owner_needs_one_kid_and_three_lines():
         next(i for i in it if i.get("id") == pid)["text"] = "one triplet"
     segs = [{"kid": "ruyu", "from_id": 1, "to_id": 3}, {"kid": "keyu", "from_id": 4, "to_id": 5}]
     assert run._photo_keyword_owners(imgs, it, segs) == {}
+
+
+def test_matched_page_never_reported_untouched():
+    imgs = photos()
+    imgs[1].update(kid="keyu", span=[2, 3])
+    s = {"photos": [{"pages": [2], "status": "not_covered", "clip": None}]}
+    run._resolve_photo_notes(s, imgs, items(), {"R1": 100.0, "R2": 60.0}, [(1, 5)], "keyu")
+    assert s["photos"][0]["status"] == "mentioned" and s["photos"][0]["clip"]["from"] == 2
+
+
+def test_profile_before_ignores_this_lessons_own_output(monkeypatch):
+    blobs = {"profiles/ruyu.json": {"updated": "20261107", "current_repertoire": ["wrong"]}}
+    monkeypatch.setattr(run.storage, "get_json", lambda c, name, default=None: blobs.get(name, default))
+    assert run.profile_before("ruyu", "20261107") == {}
+    blobs["profiles/ruyu/before-20261107.json"] = {"current_repertoire": ["Gavotte"]}
+    assert run.profile_before("ruyu", "20261107") == {"current_repertoire": ["Gavotte"]}
+    assert run.profile_before("ruyu", "20261114")["current_repertoire"] == ["wrong"]
