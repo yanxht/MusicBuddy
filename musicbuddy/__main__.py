@@ -51,6 +51,9 @@ def main() -> None:
         for cname in (config.RAW_CONTAINER, config.DATA_CONTAINER):
             for b in storage.list_blobs(cname, f"{args.date}/"):
                 storage.container(cname).delete_blob(b.name)
+        for kid in config.KIDS:
+            if storage.exists(config.DATA_CONTAINER, snap := f"profiles/{kid}/before-{args.date}.json"):
+                storage.container(config.DATA_CONTAINER).delete_blob(snap)
         index = storage.get_json(config.DATA_CONTAINER, "index.json", {"lessons": []})
         index["lessons"] = [l for l in index["lessons"] if l["date"] != args.date]
         storage.put_json(config.DATA_CONTAINER, "index.json", index)
