@@ -244,19 +244,13 @@ async function viewHome() {
 }
 
 /* ================================================================ lesson */
-const PTYPE = { instruction: "Do", correction: "Fix", tip: "Tip", demo: "Demo", praise: "Praise", assignment: "Homework", concept: "Learn" };
-const PTYPE_ZH = { instruction: "做法", correction: "纠正", tip: "小贴士", demo: "示范", praise: "表扬", assignment: "作业", concept: "知识" };
 const LABELS = {
-  en: { focus: "What the teacher focused on", came: (n) => `Came up ~${n}×`, hw: "Homework check", practice: "Practice this week",
-    replay: "Lesson replay", parts: "parts", forKid: (n) => `For ${n}`, parents: "Notes for parents", words: "Words to know",
-    photos: "Photos", status: { checked: "Checked", partly: "Partly", not_covered: "Not covered" }, min: "min",
-    music: "Music from this lesson", pstatus: { worked_on: "Worked on today", mentioned: "Mentioned", not_covered: "Not covered today" },
-    playPart: "Play this part", markings: "Teacher's markings", viewNote: "View note", done: (a, b) => `${a} of ${b} done` },
-  zh: { focus: "老师重点强调", came: (n) => `约提到 ${n} 次`, hw: "作业检查", practice: "本周练习",
-    replay: "课堂回放", parts: "个部分", forKid: (n) => `写给 ${n}`, parents: "家长须知", words: "术语小词典",
-    photos: "照片", status: { checked: "已检查", partly: "部分", not_covered: "未涉及" }, min: "分钟",
-    music: "本节课的乐谱", pstatus: { worked_on: "今天练习了", mentioned: "提到过", not_covered: "今天未涉及" },
-    playPart: "播放这一段", markings: "老师的标记", viewNote: "查看笔记", done: (a, b) => `已完成 ${a}/${b}` },
+  en: { focus: "What the teacher focused on", came: (n) => `Came up ~${n}×`, practice: "Practice this week",
+    replay: "Lesson replay", parts: "parts", words: "Words to know", photos: "Photos", min: "min",
+    done: (a, b) => `${a} of ${b} done` },
+  zh: { focus: "老师重点强调", came: (n) => `约提到 ${n} 次`, practice: "本周练习",
+    replay: "课堂回放", parts: "个部分", words: "术语小词典", photos: "照片", min: "分钟",
+    done: (a, b) => `已完成 ${a}/${b}` },
 };
 const imgKey = (im) => (im?.blob || "").match(/images\/([A-Za-z0-9]+)\.jpg$/)?.[1];
 const imgUrl = (date, key) => `/api/lessons/${date}/images/${key}`;
@@ -268,9 +262,9 @@ async function viewLesson(date, kid, tab) {
   const kids = Object.keys(doc.kids);
   if (!kids.length) { view.innerHTML = `<div class="empty">No lesson notes for this date yet.</div>`; return; }
   if (!doc.kids[kid]) { location.replace(`#/l/${date}/${kids[0]}/${tab}`); return; }
-  const K = doc.kids[kid], name = KIDS[kid]?.name || kid;
+  const K = doc.kids[kid];
   const lang = localStorage.getItem("mb_lang") === "zh" ? "zh" : "en";
-  const L = LABELS[lang], PT = lang === "zh" ? PTYPE_ZH : PTYPE;
+  const L = LABELS[lang];
   view.classList.add("kid-" + kid);
   chatScope = { date, kid };
 
@@ -313,13 +307,6 @@ async function viewLesson(date, kid, tab) {
       <div class="clips">${(f.clips || []).map((c) => clipBtn(date, c, f.title)).join("")}</div>
     </div>`).join("");
 
-  const hw = (S.homework_check || []).map((h) => `
-    <div class="row">
-      <span class="status ${esc(h.status)}">${L.status[h.status] || esc(h.status)}</span>
-      <div class="body"><div class="t">${esc(h.item)}</div>${h.feedback ? `<div class="d">${esc(h.feedback)}</div>` : ""}</div>
-      ${clipBtn(date, h.clip, "Homework: " + h.item)}
-    </div>`).join("");
-
   const asg = (S.assignments || []).map((a, i) => `
     <div class="row">
       <button class="check" data-check="${i}" aria-label="Mark done"></button>
@@ -339,43 +326,14 @@ async function viewLesson(date, kid, tab) {
         ${s.summary ? `<p class="sum">${esc(s.summary)}</p>` : ""}
         ${(s.photos || []).length ? `<div class="thumbs">${s.photos.map((k) => `<button class="thumb" data-img="${esc(k)}"><img src="${imgUrl(date, k)}" alt="" loading="lazy"></button>`).join("")}</div>` : ""}
         <ul class="points">${(s.points || []).map((p) => `
-          <li><span class="ptype ${esc(p.type)}">${esc(PT[p.type] || p.type)}</span><span class="ptext">${esc(p.text)}</span>${clipBtn(date, p.clip, p.text)}</li>`).join("")}
+          <li><span class="ptext">${esc(p.text)}</span>${clipBtn(date, p.clip, p.text)}</li>`).join("")}
         </ul>
       </div>
     </div>`).join("");
 
   const images = doc.images || [];
   const byKey = Object.fromEntries(images.filter(imgKey).map((im) => [imgKey(im), im]));
-  const notesPhotos = images.filter((im) => im.kind === "homework_notes" && forKid(im, kid) && imgKey(im));
-  const pageKeys = (p) => (p.keys || [p.key]).filter((k) => byKey[k]);
-  const pagePhotos = (S.photos || []).filter((p) => pageKeys(p).length);
-  const shown = new Set([...pagePhotos.flatMap(pageKeys), ...notesPhotos.map(imgKey)]);
-  const music = pagePhotos.map((p) => {
-    const keys = pageKeys(p);
-    const im = byKey[keys[0]];
-    const title = im.piece || im.title || im.name;
-    const sec = (S.sections || []).find((x) => (x.photos || []).some((k) => keys.includes(k)));
-    return `
-    <div class="card score${keys.length > 1 ? " multi" : ""}">
-      <div class="score-pages n${Math.min(keys.length, 3)}">${keys.map((k) => `<button class="score-img" data-img="${esc(k)}"><img src="${imgUrl(date, k)}" alt="${esc(byKey[k].title)}" loading="lazy"></button>`).join("")}</div>
-      <div class="score-body">
-        <span class="pstatus ${esc(p.status)}">${esc(L.pstatus[p.status] || p.status)}</span>
-        <h3>${esc(title)}</h3>
-        ${keys.some((k) => byKey[k].title !== title) ? `<div class="material">${keys.map((k) => esc(byKey[k].title)).join(" · ")}</div>` : ""}
-        ${keys.flatMap((k) => byKey[k].dates || []).length ? `<div class="material">🗓 ${esc([...new Set(keys.flatMap((k) => byKey[k].dates || []))].join(" · "))}</div>` : ""}
-        ${sec ? `<div class="material">↳ ${esc(sec.title)}</div>` : ""}
-        ${p.summary ? `<p class="sum">${esc(p.summary)}</p>` : ""}
-        ${im.check_note ? `<div class="material">🔎 ${esc(im.check_note)}</div>` : ""}
-        ${p.clip ? clipBtn(date, p.clip, title, `${L.playPart} · ${clipTime(date, p.clip)} · ${mins(Math.max(1, Math.round((p.clip.end - p.clip.start) / 60)))}`) : ""}
-        ${(p.markings || []).length ? `<div class="marks-h">${L.markings}</div><ul class="marks">${p.markings.map((m) => `
-          <li><span class="mark">${esc(m.mark)}</span><span class="ptext">${esc(m.meaning)}</span>${clipBtn(date, m.clip, m.mark)}</li>`).join("")}</ul>` : ""}
-      </div>
-    </div>`;
-  }).join("");
-  const hwNote = notesPhotos.map((im) => `<button class="chip-btn" data-img="${esc(imgKey(im))}">${L.viewNote}</button>`).join("");
-
-  const photos = images.filter((im) => imgKey(im) && !shown.has(imgKey(im)) && forKid(im, kid)
-      && im.kind !== "homework_notes").map((im) => `
+  const photos = images.filter((im) => imgKey(im) && forKid(im, kid)).map((im) => `
     <button class="photo" data-img="${esc(imgKey(im))}">
       <img src="${imgUrl(date, imgKey(im))}" alt="${esc(im.title)}" loading="lazy">
       <div class="cap">${esc(im.title || im.name)}</div>
@@ -404,12 +362,8 @@ async function viewLesson(date, kid, tab) {
       ${S.mood ? `<span class="mood">${esc(S.mood)}</span>` : ""}
     </div>
     ${focus ? `<h2 class="section">${L.focus}</h2><div class="focus-grid">${focus}</div>` : ""}
-    ${hw ? `<h2 class="section">${L.hw} <span class="count">${(S.homework_check || []).length}</span><span class="spacer"></span>${hwNote}</h2><div class="card list-card">${hw}</div>` : ""}
     ${asg || plan ? `<h2 class="section">${L.practice} <span class="count" id="done-count"></span></h2>${asg ? `<div class="card list-card" id="asg">${asg}</div>` : ""}${plan ? `<div class="plan">${plan}</div>` : ""}` : ""}
-    ${music ? `<h2 class="section">${L.music} <span class="count">${pagePhotos.length}</span></h2><div class="stack">${music}</div>` : ""}
     ${sections ? `<h2 class="section">${L.replay} <span class="count">${(S.sections || []).length} ${L.parts}</span></h2><div class="timeline">${sections}</div>` : ""}
-    ${S.kid_recap ? `<h2 class="section">${esc(L.forKid(name))}</h2><div class="recap">${esc(S.kid_recap)}</div>` : ""}
-    ${(S.parent_notes || []).length ? `<h2 class="section">${L.parents}</h2><div class="card list-card">${S.parent_notes.map((n) => `<div class="row"><div class="body d">${esc(n)}</div></div>`).join("")}</div>` : ""}
     ${(S.glossary || []).length ? `<h2 class="section">${L.words}</h2><div class="glossary">${S.glossary.map((g) => `<div class="card"><b>${esc(g.term)}</b><span>${esc(g.meaning)}</span></div>`).join("")}</div>` : ""}
     ${photos ? `<h2 class="section">${L.photos}</h2><div class="photos">${photos}</div>` : ""}
     <details class="how">

@@ -137,23 +137,6 @@ def test_attach_section_photos_maps_numbers_and_falls_back_to_overlap():
     assert s["sections"][1]["photos"] == ["abc123"]
 
 
-def test_resolve_photo_notes():
-    it = items()
-    durs = {"R1": 100.0, "R2": 60.0}
-    s = {"photos": [{"photo": 2, "status": "worked_on", "clip": [1, 3],
-                     "markings": [{"mark": "Count!", "meaning": "count aloud", "clip": [1, 1]}, {"mark": ""}]},
-                    {"photo": 7}]}
-    run._resolve_photo_notes(s, photos(), it, durs, [(1, 5)])
-    assert len(s["photos"]) == 1
-    p = s["photos"][0]
-    assert p["key"] == "abc123" and p["clip"]["to"] == 3  # page clip is not capped
-    assert [m["mark"] for m in p["markings"]] == ["Count!"]
-
-
-def test_resolve_photo_notes_groups_pages():
-    s = {"photos": [{"pages": [2, "3", 3, 99], "status": "not_covered", "clip": None}]}
-    run._resolve_photo_notes(s, photos(), items(), {"R1": 100.0, "R2": 60.0}, [(1, 5)])
-    assert s["photos"][0]["keys"] == ["abc123", "def456"] and s["photos"][0]["clip"] is None
 
 
 def test_group_members_inherit_kid_and_other_kids_pages_are_hidden():
@@ -164,9 +147,6 @@ def test_group_members_inherit_kid_and_other_kids_pages_are_hidden():
     run._apply_photo_attribution(imgs, attr, 5)
     assert imgs[2]["kid"] == "keyu"
     assert "[photo 2]" not in run._fmt_pages(imgs, "ruyu", books_only=True)
-    s = {"photos": [{"pages": [2, 3]}]}
-    run._resolve_photo_notes(s, imgs, items(), {"R1": 100.0, "R2": 60.0}, [(1, 3)], "ruyu")
-    assert s["photos"] == []
 
 
 def test_photo_keyword_hits_find_handwritten_words_in_transcript():
@@ -187,7 +167,8 @@ def test_keyword_owner_overrides_wrong_kid():
     assert owners[1]["kid"] == "keyu" and owners[1]["word"] == "triplet"
     photos = [{"photo": 1, "kid": "ruyu", "from_id": 1, "to_id": 2, "check": "agrees"}]
     run._enforce_keyword_owners(photos, owners)
-    assert photos[0]["kid"] == "keyu" and (photos[0]["from_id"], photos[0]["to_id"]) == (3, 5)
+    # Ownership only: marks can be old, so no "taught today" span is claimed.
+    assert photos[0]["kid"] == "keyu" and photos[0]["from_id"] is None
 
 
 def test_keyword_owner_needs_one_kid_and_three_lines():
@@ -198,13 +179,6 @@ def test_keyword_owner_needs_one_kid_and_three_lines():
     segs = [{"kid": "ruyu", "from_id": 1, "to_id": 3}, {"kid": "keyu", "from_id": 4, "to_id": 5}]
     assert run._photo_keyword_owners(imgs, it, segs) == {}
 
-
-def test_matched_page_never_reported_untouched():
-    imgs = photos()
-    imgs[1].update(kid="keyu", span=[2, 3])
-    s = {"photos": [{"pages": [2], "status": "not_covered", "clip": None}]}
-    run._resolve_photo_notes(s, imgs, items(), {"R1": 100.0, "R2": 60.0}, [(1, 5)], "keyu")
-    assert s["photos"][0]["status"] == "mentioned" and s["photos"][0]["clip"]["from"] == 2
 
 
 def test_profile_before_ignores_this_lessons_own_output(monkeypatch):

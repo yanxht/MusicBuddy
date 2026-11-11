@@ -31,8 +31,8 @@ the teacher playing.
 Homework / notes the parent sent before the lesson (the teacher uses them to check homework):
 {notes}
 
-Photos attached to this lesson (lesson-book pages, homework screenshots; the kid shown is only
-a guess from the image itself):
+Photos attached to this lesson (lesson-book pages, homework screenshots; auxiliary evidence only:
+the kid shown is a guess from the image, and handwritten marks/dates may be weeks old):
 {pages}
 
 Transcript (#id recording time speaker: text):
@@ -54,17 +54,17 @@ Use "none" only for long stretches that belong to neither lesson (e.g. a break, 
 between lessons). Prefer few large segments; a child's lesson is normally one contiguous block."""
 
 
-PHOTO_MATCH_SYSTEM = """You match photos of lesson-book pages to the moments in a music lesson where
-they were used, as an independent cross-check of which child each part of the lesson belongs to.
-Weigh evidence carefully. Strong: the teacher saying the words handwritten on the page (e.g. she
-counts "one triplet" and the page says "Count! one trip-let"), naming the piece or exercise
-number, describing the same passage. Medium: a handwritten date equal to this lesson's date (the
-page was assigned or worked on today), the child's level and repertoire. Weak: generic numbers such
-as metronome marks (many exercises use the same tempo), key or time signature alone.
-Pages from the same book or group usually belong to the same child. Only tie a page to a span when
-the piece being played there is the piece on the page: if the transcript names a different piece
-("which piece are you playing ... the Gavotte"), the page is not that one, however similar the
-tempo or date. Return only JSON."""
+PHOTO_MATCH_SYSTEM = """You use photos of lesson-book pages as auxiliary evidence to cross-check an
+analysis of a music lesson that was made from the audio. The audio is the primary source. Pages
+are photographed as they are, so their handwritten marks and dates accumulate over many weeks:
+never treat a mark or a date as proof that something was taught today. A photo mostly tells you
+which book and piece a child is working on, which helps confirm whose lesson a stretch of audio is.
+Strong: the transcript names the piece or exercise, describes the same passage, or the teacher
+says a distinctive word written on the page. Weak: marks, dates, metronome numbers, key or time
+signature alone. Pages from the same book or group usually belong to the same child. Only tie a
+page to a span when the piece being played there is the piece on the page: if the transcript names
+a different piece ("which piece are you playing ... the Gavotte"), the page is not that one.
+Return only JSON."""
 
 PHOTO_MATCH_USER = """Lesson date: {date}
 Children: {kids}
@@ -116,7 +116,9 @@ Previous lesson's assignments for this child (may be empty):
 Homework notes the parent sent before this lesson (teacher checks these):
 {notes}
 
-Lesson-book pages photographed this lesson (with the transcript span they were matched to):
+Lesson-book pages photographed for this lesson (auxiliary only: use the printed title, page and
+exercise number to name material precisely; handwritten marks may be weeks old, so never infer
+what was taught from them):
 {pages}
 
 Speakers: {speakers}
@@ -131,7 +133,7 @@ on ONE moment, usually 10-90 seconds (a handful of lines), never a whole section
 within this transcript. For teacher_focus give 2-3 short clips of the clearest moments):
 {{
   "headline": "max 10 words capturing the lesson's main theme",
-  "overview": "3-5 sentences: what was covered, how it went, the biggest takeaways",
+  "overview": "2-3 sentences: what was covered and the biggest takeaways",
   "mood": "one short phrase about energy / encouragement level",
   "teacher_focus": [
     {{"title": "short name of a theme the teacher kept coming back to", "detail": "what exactly she wants and why",
@@ -141,50 +143,25 @@ within this transcript. For teacher_focus give 2-3 short clips of the clearest m
     {{"title": "e.g. Vibrato warm-up / Perpetual Motion m. 9-16", "kind": "warmup|technique|scale|etude|piece|theory|note_reading|homework_check|talk",
       "material": "book / piece / exercise name, page or measures if known, else empty",
       "from_id": 1, "to_id": 60,
-      "photos": [1],
-      "summary": "2-4 sentences of what happened",
+      "summary": "one short sentence",
       "points": [
-        {{"type": "instruction|correction|tip|demo|praise|assignment|concept",
-          "text": "one precise, actionable sentence", "clip": [12, 18]}}
+        {{"text": "a key point in plain words, at most ~20 words", "clip": [12, 18]}}
       ]
     }}
-  ],
-  "homework_check": [
-    {{"item": "homework item from the notes", "status": "checked|partly|not_covered",
-      "feedback": "what the teacher said about it", "clip": [70, 75]}}
   ],
   "assignments": [
     {{"task": "what to practice this week", "details": "tempo, how many times, minutes, specific spots",
       "priority": "high|normal", "clip": [500, 510]}}
   ],
   "practice_plan": [{{"step": "ordered daily routine step", "minutes": 5}}],
-  "kid_recap": "a short, upbeat note written directly to {kid_name} at a {age}-year-old's level, with 3 things to remember",
-  "parent_notes": ["things for the parent: logistics, questions raised, what to supervise"],
-  "glossary": [{{"term": "musical term used in the lesson", "meaning": "kid-friendly definition"}}],
-  "photos": [
-    {{"pages": [1, 2], "status": "worked_on|mentioned|not_covered",
-      "summary": "1-2 sentences: what was done with this page today (or why it matters if not covered)",
-      "clip": [300, 420],
-      "markings": [
-        {{"mark": "a handwritten marking from the photo, verbatim", "meaning": "what the teacher meant, in plain words",
-          "clip": [310, 316]}}
-      ]
-    }}
-  ]
+  "glossary": [{{"term": "musical term used in the lesson", "meaning": "kid-friendly definition"}}]
 }}
 Sections must follow the lesson chronologically and together cover the whole lesson.
-Aim for 6-14 sections, 2-8 points each, 3-6 teacher_focus themes, and include every homework item
-from the notes in homework_check. In each section, "photos" lists the photo numbers of book pages
-used in that section (empty list if none); use a photo's printed title, page and measure numbers to
-name the material precisely. Give one "photos" entry per piece shown in the book-page photos above
-(photos with the same group are pages of one piece and go in one entry's "pages"): "clip" spans
-the whole stretch where that page is worked on (null if not covered), and "markings" explains the
-handwritten markings, each linked to the moment the teacher talks about it when she does (clip may
-be null for older markings). A page listed as "matched to #a-#b" was found being used at those
-lines: describe what happened there and do not mark it not_covered. Only list markings that carry meaning (words, tempo marks, circled or
-bracketed spots, arrows, symbols the teacher explained); skip plain fingering numbers unless the
-teacher talks about them; skip handwritten dates (they are shown separately); at most 6 per piece. Do not split a page into pieces; treat it as one
-artifact. Only describe pages that belong to this child's lesson."""
+Aim for 5-12 sections and 3-6 teacher_focus themes. Lesson replay is the most important part, and
+it must be concise: per section give only the 2-5 key points worth remembering (what to do, what
+to fix, the main idea), each one short sentence. Teachers mix instructions, corrections and tips
+in the same breath, so do not label or split points by type; merge related remarks into one point,
+drop small talk, repetitions and filler ("ready, go", "good")."""
 
 
 PROFILE_SYSTEM = """You maintain a concise learning profile for a child music student, updated

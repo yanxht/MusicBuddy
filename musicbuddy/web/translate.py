@@ -7,8 +7,7 @@ from .. import config, llm, prompts, storage
 
 log = logging.getLogger(__name__)
 TEXT_KEYS = {"headline", "overview", "mood", "title", "detail", "material", "summary", "text",
-             "item", "feedback", "task", "details", "step", "kid_recap", "meaning", "term"}
-LIST_KEYS = {"parent_notes"}
+             "task", "details", "step", "meaning", "term"}
 BATCH = 120
 
 
@@ -18,11 +17,6 @@ def _collect(obj, out: list, setters: list) -> None:
             if k in TEXT_KEYS and isinstance(v, str) and v.strip():
                 out.append(v)
                 setters.append((obj, k))
-            elif k in LIST_KEYS and isinstance(v, list):
-                for i, s in enumerate(v):
-                    if isinstance(s, str) and s.strip():
-                        out.append(s)
-                        setters.append((v, i))
             elif isinstance(v, (dict, list)) and k != "clip" and k != "clips":
                 _collect(v, out, setters)
     elif isinstance(obj, list):

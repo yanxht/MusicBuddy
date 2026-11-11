@@ -267,7 +267,9 @@ def _photo_keyword_owners(images: list[dict], items: list[dict], segments: list[
 
 
 def _enforce_keyword_owners(photos: list[dict], owners: dict[int, dict]) -> None:
-    """If the model ties a page to the other child despite hard keyword evidence, trust the evidence."""
+    """If the model gives a page to the other child despite hard keyword evidence, trust the evidence.
+
+    Only ownership is corrected; marks can be old, so no claim is made about what was taught today."""
     by_n = {_as_int(p.get("photo")): p for p in photos}
     for n, o in owners.items():
         p = by_n.get(n)
@@ -277,11 +279,11 @@ def _enforce_keyword_owners(photos: list[dict], owners: dict[int, dict]) -> None
             continue
         name = config.KIDS[o["kid"]]["name"]
         log.info("photo %s: keyword evidence '%s' overrides kid %s -> %s", n, o["word"], p.get("kid"), o["kid"])
-        p.update(kid=o["kid"], from_id=min(o["ids"]), to_id=max(o["ids"]), check="agrees",
+        p.update(kid=o["kid"], from_id=None, to_id=None, check="agrees",
                  evidence=[f"'{o['word']}' (written on the page) is said at "
                            + ", ".join(f"#{i}" for i in o["ids"][:5]) + f" in {name}'s lesson"],
                  check_note=f"The teacher says '{o['word']}', written on this page, {len(o['ids'])} times "
-                            f"in {name}'s lesson, so the page is {name}'s.")
+                            f"in {name}'s lesson, so this is {name}'s book.")
 
 
 def match_photos(date: str, items: list[dict], attr: dict, images: list[dict], speakers: dict) -> list[dict]:
@@ -480,9 +482,8 @@ def _resolve_summary(s: dict, items, durations, ranges) -> dict:
         sec["clip"] = _resolve_clip([sec.get("from_id"), sec.get("to_id")], items, durations, ranges, None)
         for p in sec.get("points", []):
             p["clip"] = rc(p.get("clip"))
-    for key in ("homework_check", "assignments"):
-        for x in s.get(key, []):
-            x["clip"] = None if x.get("status") == "not_covered" else rc(x.get("clip"))
+    for x in s.get("assignments", []):
+        x["clip"] = rc(x.get("clip"))
     return s
 
 
@@ -511,36 +512,7 @@ def summarize_kid(date: str, kid: str, meta: dict, items: list[dict], ranges: li
         speakers=", ".join(sorted(set(speakers.values()))) or "unknown", transcript=transcript)
     s = llm.chat_json(prompts.SUMMARY_SYSTEM, user, max_tokens=64000)
     _attach_section_photos(s, images, kid)
-    _resolve_photo_notes(s, images, items, durations, ranges, kid)
     return _resolve_summary(s, items, durations, ranges)
-
-
-def _resolve_photo_notes(s: dict, images: list[dict], items, durations, ranges, kid: str | None = None) -> None:
-    """Photo numbers -> image keys; the page clip spans its whole stretch, marking clips stay short."""
-    out = []
-    for p in s.get("photos") or []:
-        nums = [n for n in (_as_int(x) for x in (p.get("pages") or [p.get("photo")]))
-                if n and 1 <= n <= len(images) and images[n - 1].get("blob")
-                and (kid is None or images[n - 1].get("kid") in (kid, "both"))]
-        if not nums:
-            continue
-        keys = list(dict.fromkeys(Path(images[n - 1]["blob"]).stem for n in nums))
-        status, clip_ref = p.get("status", ""), p.get("clip")
-        spans = [images[n - 1]["span"] for n in nums if images[n - 1].get("span")]
-        if status == "not_covered" and spans:
-            # Photo matching found the page discussed in this lesson; don't call it untouched.
-            status, clip_ref = "mentioned", [min(a for a, _ in spans), max(b for _, b in spans)]
-        out.append({
-            "keys": keys,
-            "key": keys[0],
-            "status": status,
-            "summary": p.get("summary", ""),
-            "clip": _resolve_clip(clip_ref, items, durations, ranges, None),
-            "markings": [{"mark": m.get("mark", ""), "meaning": m.get("meaning", ""),
-                          "clip": _resolve_clip(m.get("clip"), items, durations, ranges)}
-                         for m in p.get("markings") or [] if m.get("mark")],
-        })
-    s["photos"] = out
 
 
 def update_profile(date: str, kid: str, summary: dict) -> None:
