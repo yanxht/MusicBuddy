@@ -4,8 +4,10 @@ import logging
 import re
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from . import config, storage
 
@@ -50,43 +52,61 @@ def lesson_files(folder: Path) -> list[Path]:
                   if p.is_file() and not p.name.startswith(".") and kind_of(p.name))
 
 
-def fingerprint(files: list[Path]) -> str:
+@dataclass
+class Entry:
+    """One lesson file from any source (local folder or Google Drive)."""
+    name: str
+    size: int
+    mtime: float
+    upload: Callable[[str], None]  # uploads the file to the given raw blob name
+
+
+def fingerprint(entries: list[Entry]) -> str:
+    # Names + sizes only, so the Mac watcher and the cloud Drive poller agree on "unchanged".
     h = hashlib.sha1()
-    for p in files:
-        h.update(f"{p.name}:{p.stat().st_size};".encode())
+    for e in sorted(entries, key=lambda e: e.name):
+        h.update(f"{e.name}:{e.size};".encode())
     return h.hexdigest()
 
 
-def sync_folder(folder: Path, force: bool = False) -> bool:
-    """Upload a lesson folder if it is new or changed. Returns True if a job was enqueued."""
-    did = date_id(folder.name)
-    files = lesson_files(folder)
-    if not did or not files:
+def sync_lesson(did: str, entries: list[Entry], source: str, force: bool = False) -> bool:
+    """Upload a lesson's files if new or changed and queue processing. True if a job was queued."""
+    entries = [e for e in entries if kind_of(e.name) and not e.name.startswith(".")]
+    if not entries:
         return False
-    newest = max(p.stat().st_mtime for p in files)
-    if not force and time.time() - newest < STABLE_AFTER_S:
-        log.info("%s still changing; will retry later", folder.name)
+    if not force and time.time() - max(e.mtime for e in entries) < STABLE_AFTER_S:
+        log.info("%s still changing; will retry later", did)
         return False
-    fp = fingerprint(files)
+    fp = fingerprint(entries)
     manifest = storage.get_json(config.RAW_CONTAINER, f"{did}/manifest.json") or {}
     if manifest.get("fingerprint") == fp and not force:
         return False
     existing = {b.name: b.size for b in storage.list_blobs(config.RAW_CONTAINER, f"{did}/")}
-    for p in files:
-        blob = f"{did}/{p.name}"
-        if existing.get(blob) != p.stat().st_size:
-            log.info("uploading %s (%.1f MB)", p.name, p.stat().st_size / 1e6)
-            storage.put_file(config.RAW_CONTAINER, blob, p)
+    for e in entries:
+        blob = f"{did}/{e.name}"
+        if existing.get(blob) != e.size:
+            log.info("uploading %s (%.1f MB) from %s", e.name, e.size / 1e6, source)
+            e.upload(blob)
     storage.put_json(config.RAW_CONTAINER, f"{did}/manifest.json", {
-        "date": did, "fingerprint": fp, "source": str(folder),
+        "date": did, "fingerprint": fp, "source": source,
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
-        "files": [{"name": p.name, "kind": kind_of(p.name), "size": p.stat().st_size} for p in files],
+        "files": [{"name": e.name, "kind": kind_of(e.name), "size": e.size} for e in entries],
     })
     storage.put_json(config.DATA_CONTAINER, f"{did}/status.json",
                      {"date": did, "state": "queued", "step": "uploaded raw files",
                       "updated": datetime.now(timezone.utc).isoformat()})
     storage.enqueue(did, "changed" if manifest else "new")
     return True
+
+
+def sync_folder(folder: Path, force: bool = False) -> bool:
+    did = date_id(folder.name)
+    if not did:
+        return False
+    entries = [Entry(p.name, p.stat().st_size, p.stat().st_mtime,
+                     lambda blob, p=p: storage.put_file(config.RAW_CONTAINER, blob, p))
+               for p in lesson_files(folder)]
+    return sync_lesson(did, entries, str(folder), force)
 
 
 def scan(input_dir: str | None = None, force: bool = False) -> list[str]:

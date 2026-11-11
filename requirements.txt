@@ -9,3 +9,5 @@ openai>=1.40
 python-dotenv>=1.0
 pillow>=10.0
 pillow-heif>=0.18
+google-auth>=2.30
+requests>=2.31

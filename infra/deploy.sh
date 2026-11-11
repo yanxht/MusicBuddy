@@ -55,6 +55,13 @@ ENVVARS=(
   MB_PASSCODE=secretref:passcode
   MB_RUN_WORKER=1
 )
+# Optional: Google Drive poller (see docs). Key file is git-ignored.
+SA_FILE=.secrets/google-sa.json
+DRIVE_ID=$($PY -c "from dotenv import dotenv_values; print(dotenv_values('.env').get('MB_DRIVE_FOLDER_ID') or '')")
+if [[ -f "$SA_FILE" && -n "$DRIVE_ID" ]]; then
+  SECRETS+=("google-sa=$($PY -c "import json; print(json.dumps(json.load(open('$SA_FILE'))))")")
+  ENVVARS+=(MB_GOOGLE_SA_JSON=secretref:google-sa "MB_DRIVE_FOLDER_ID=$DRIVE_ID")
+fi
 
 if ! az containerapp show -n "$APP" -g "$RG" -o none 2>/dev/null; then
   az containerapp create -n "$APP" -g "$RG" --environment "$ENVNAME" --image "$IMAGE" \

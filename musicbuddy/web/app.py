@@ -33,8 +33,9 @@ async def _lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("azure").setLevel(logging.WARNING)
     if os.getenv("MB_RUN_WORKER", "0") == "1":
-        from .. import worker
+        from .. import drive, worker
         worker.start_background()
+        drive.start_background()
     yield
 
 

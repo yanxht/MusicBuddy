@@ -19,6 +19,7 @@ def main() -> None:
     e = sub.add_parser("enqueue", help="queue a lesson for the cloud worker")
     e.add_argument("date")
     sub.add_parser("worker", help="run the queue worker in the foreground")
+    sub.add_parser("drive-scan", help="scan the Google Drive lesson folder once (needs service account)")
     d = sub.add_parser("delete", help="delete a lesson's raw files, outputs and index entry")
     d.add_argument("date")
     s = sub.add_parser("serve", help="run the web app")
@@ -38,6 +39,11 @@ def main() -> None:
     elif args.cmd == "worker":
         from . import worker
         worker.loop()
+    elif args.cmd == "drive-scan":
+        from . import drive
+        if not drive.enabled():
+            raise SystemExit("Set MB_GOOGLE_SA_JSON and MB_DRIVE_FOLDER_ID first")
+        print("queued:", drive.scan() or "nothing new")
     elif args.cmd == "delete":
         from . import config, storage
         if not args.date.isdigit() or len(args.date) != 8:

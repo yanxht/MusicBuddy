@@ -30,6 +30,13 @@ JOB_QUEUE = env("MB_JOB_QUEUE", "lesson-jobs")
 INPUT_DIR = env("MB_INPUT_DIR")
 WORK_DIR = Path(env("MB_WORK_DIR", str(ROOT / "work")))
 
+# Google Drive poller (cloud): service-account JSON and the "Music Lesson Recording" folder id.
+GOOGLE_SA_JSON = env("MB_GOOGLE_SA_JSON")
+if not GOOGLE_SA_JSON and (ROOT / ".secrets" / "google-sa.json").exists():
+    GOOGLE_SA_JSON = (ROOT / ".secrets" / "google-sa.json").read_text()
+DRIVE_FOLDER_ID = env("MB_DRIVE_FOLDER_ID")
+DRIVE_POLL_S = int(env("MB_DRIVE_POLL_S", "180"))
+
 SESSION_SECRET = env("MB_SESSION_SECRET", "dev-only-secret")
 PASSCODE = env("MB_PASSCODE")
 
